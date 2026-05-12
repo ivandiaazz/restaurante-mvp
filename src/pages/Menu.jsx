@@ -60,8 +60,9 @@ export default function Menu() {
           system: `Eres el asistente de un restaurante. Conoces el menú al detalle. Sé amable, conciso y útil. El menú es:\n${menuTexto}`
         })
       })
-      const data = await response.json()
-      setChatMessages(prev => [...prev, { role: 'assistant', content: String(data?.reply || 'Lo siento, inténtalo de nuevo.') }])
+      const json = await response.json()
+      const reply = json && json.reply ? String(json.reply) : 'Lo siento, inténtalo de nuevo.'
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error al conectar.' }])
     }
@@ -73,21 +74,18 @@ export default function Menu() {
 
   return (
     <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
-
       <div style={{ padding: '48px 24px 24px', borderBottom: '1px solid #f0f0f0' }}>
         <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: '#999', marginBottom: 8 }}>Mesa {tableId}</div>
         <div style={{ fontSize: 32, fontWeight: 700, color: '#111', letterSpacing: -1 }}>Carta</div>
       </div>
 
       <div style={{ padding: '0 0 200px' }}>
-        {platos.map((plato, i) => (
+        {platos.map(plato => (
           <div key={plato.id} style={{ padding: '20px 24px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 4 }}>{plato.nombre}</div>
               <div style={{ fontSize: 13, color: '#999', lineHeight: 1.5, marginBottom: plato.alergenos ? 8 : 0 }}>{plato.descripcion}</div>
-              {plato.alergenos && (
-                <div style={{ fontSize: 11, color: '#bbb', letterSpacing: 0.5 }}>{plato.alergenos}</div>
-              )}
+              {plato.alergenos && <div style={{ fontSize: 11, color: '#bbb', letterSpacing: 0.5 }}>{plato.alergenos}</div>}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#111' }}>{Number(plato.precio).toFixed(2)}€</div>
@@ -107,7 +105,7 @@ export default function Menu() {
 
       {carrito.length > 0 && (
         <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448, zIndex: 20 }}>
-          <button onClick={() => navigate(`/order/${restaurantId}/${tableId}`, { state: { carrito } })} style={{ width: '100%', padding: '16px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 16, cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: 0.3 }}>
+          <button onClick={() => navigate(`/order/${restaurantId}/${tableId}`, { state: { carrito } })} style={{ width: '100%', padding: '16px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 16, cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ background: '#fff', color: '#111', borderRadius: '50%', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{totalItems}</span>
             <span>Ver pedido</span>
             <span>{total.toFixed(2)}€</span>
