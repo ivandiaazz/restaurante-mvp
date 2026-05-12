@@ -21,12 +21,10 @@ export default async function handler(req, res) {
       })
     })
 
-    const text = await response.text()
-    console.log('Anthropic response:', text)
-    const data = JSON.parse(text)
-    return res.status(200).json(data)
+    const data = await response.json()
+    const text = data?.content?.[0]?.text || data?.error?.message || 'Sin respuesta'
+    return res.status(200).json({ reply: text })
   } catch (error) {
-    console.error('Error:', error.message)
-    return res.status(500).json({ error: error.message })
+    return res.status(500).json({ reply: 'Error: ' + error.message })
   }
 }

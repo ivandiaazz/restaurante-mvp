@@ -53,7 +53,7 @@ export default function Menu() {
       })
 
       const data = await response.json()
-      const reply = String(data?.content?.[0]?.text || data?.error || 'Lo siento, no pude responder.')
+      const reply = String(data?.reply || 'Lo siento, no pude responder.')
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch (err) {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error al conectar con el asistente.' }])
