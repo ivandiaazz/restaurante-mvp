@@ -52,7 +52,7 @@ export default function Menu() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': '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',
+        'x-api-key': '',
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
