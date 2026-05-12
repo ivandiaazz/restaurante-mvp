@@ -18,16 +18,10 @@ export default function Menu() {
   ])
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    fetchPlatos()
-  }, [])
+  useEffect(() => { fetchPlatos() }, [])
 
   async function fetchPlatos() {
-    const { data } = await supabase
-      .from('platos')
-      .select('*')
-      .eq('restaurante_id', restaurantId)
-      .eq('activo', true)
+    const { data } = await supabase.from('platos').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
     if (data) setPlatos(data)
   }
 
@@ -48,19 +42,12 @@ export default function Menu() {
 
     const menuTexto = platos.map(p => `${p.nombre}: ${p.descripcion}. Precio: ${p.precio}€. Alérgenos: ${p.alergenos || 'ninguno'}`).join('\n')
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': import.meta.env.VITE_ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
-        system: `Eres el asistente de un restaurante. Conoces el menú al detalle y ayudas a los clientes a elegir. Sé amable y breve. El menú de hoy es:\n${menuTexto}`,
-        messages: [...chatMessages, userMsg]
+        messages: [...chatMessages, userMsg],
+        system: `Eres el asistente de un restaurante. Conoces el menú al detalle y ayudas a los clientes a elegir. Sé amable y breve. El menú de hoy es:\n${menuTexto}`
       })
     })
 
@@ -75,7 +62,6 @@ export default function Menu() {
   return (
     <div style={{ fontFamily: 'sans-serif', maxWidth: 600, margin: '0 auto', padding: 16 }}>
       <h1 style={{ fontSize: 22, marginBottom: 8 }}>Carta — Mesa {tableId}</h1>
-
       <div style={{ marginBottom: 24 }}>
         {platos.map(plato => (
           <div key={plato.id} style={{ border: '1px solid #eee', borderRadius: 8, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -91,7 +77,6 @@ export default function Menu() {
           </div>
         ))}
       </div>
-
       {carrito.length > 0 && (
         <div style={{ background: '#f9f9f9', borderRadius: 8, padding: 12, marginBottom: 24 }}>
           <h2 style={{ fontSize: 16, marginBottom: 8 }}>Tu pedido</h2>
@@ -107,7 +92,6 @@ export default function Menu() {
           <button onClick={() => navigate(`/order/${restaurantId}/${tableId}`, { state: { carrito } })} style={{ marginTop: 12, width: '100%', padding: '10px', background: '#000', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 15 }}>Confirmar pedido</button>
         </div>
       )}
-
       <div style={{ border: '1px solid #eee', borderRadius: 8, padding: 12 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Asistente IA</h2>
         <div style={{ height: 200, overflowY: 'auto', marginBottom: 8 }}>
