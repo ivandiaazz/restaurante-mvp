@@ -22,9 +22,11 @@ export default async function handler(req, res) {
     })
 
     const data = await response.json()
+    console.log('Full response:', JSON.stringify(data))
     const reply = data?.content?.[0]?.text || data?.error?.message || 'Sin respuesta'
     return res.status(200).json({ reply: String(reply) })
   } catch (error) {
+    console.error('Error:', error)
     return res.status(500).json({ reply: 'Error: ' + error.message })
   }
 }
