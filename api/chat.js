@@ -14,7 +14,7 @@ export default async function handler(req, res) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 500,
         system,
         messages
@@ -22,11 +22,9 @@ export default async function handler(req, res) {
     })
 
     const data = await response.json()
-    console.log('Full response:', JSON.stringify(data))
     const reply = data?.content?.[0]?.text || data?.error?.message || 'Sin respuesta'
     return res.status(200).json({ reply: String(reply) })
   } catch (error) {
-    console.error('Error:', error)
     return res.status(500).json({ reply: 'Error: ' + error.message })
   }
 }
