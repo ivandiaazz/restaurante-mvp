@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { createClient } from '@supabase/supabase-js'
 
@@ -14,12 +14,14 @@ export default function Menu() {
   const [carrito, setCarrito] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [chatMessages, setChatMessages] = useState([
-    { role: 'assistant', content: '¡Hola! Soy tu asistente. Puedo ayudarte con el menú, alérgenos y recomendaciones. ¿Qué te apetece hoy?' }
+    { role: 'assistant', content: '¡Hola! Soy tu asistente. Puedo ayudarte con el menú, alérgenos y recomendaciones.' }
   ])
   const [loading, setLoading] = useState(false)
   const [chatAbierto, setChatAbierto] = useState(false)
+  const chatRef = useRef(null)
 
   useEffect(() => { fetchPlatos() }, [])
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [chatMessages])
 
   async function fetchPlatos() {
     const { data } = await supabase.from('platos').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
@@ -34,13 +36,20 @@ export default function Menu() {
     })
   }
 
+  function removeFromCarrito(plato) {
+    setCarrito(prev => {
+      const existe = prev.find(p => p.id === plato.id)
+      if (existe && existe.cantidad > 1) return prev.map(p => p.id === plato.id ? { ...p, cantidad: p.cantidad - 1 } : p)
+      return prev.filter(p => p.id !== plato.id)
+    })
+  }
+
   async function sendMessage() {
     if (!chatInput.trim()) return
     const userMsg = { role: 'user', content: chatInput }
     setChatMessages(prev => [...prev, userMsg])
     setChatInput('')
     setLoading(true)
-
     try {
       const menuTexto = platos.map(p => `${p.nombre}: ${p.descripcion}. Precio: ${p.precio}€. Alérgenos: ${p.alergenos || 'ninguno'}`).join('\n')
       const response = await fetch('/api/chat', {
@@ -48,12 +57,11 @@ export default function Menu() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [...chatMessages, userMsg],
-          system: `Eres el asistente de un restaurante. Conoces el menú al detalle y ayudas a los clientes a elegir. Sé amable y breve. El menú de hoy es:\n${menuTexto}`
+          system: `Eres el asistente de un restaurante. Conoces el menú al detalle. Sé amable, conciso y útil. El menú es:\n${menuTexto}`
         })
       })
       const data = await response.json()
-      const reply = String(data?.reply || 'Lo siento, no pude responder.')
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      setChatMessages(prev => [...prev, { role: 'assistant', content: String(data?.reply || 'Lo siento, inténtalo de nuevo.') }])
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error al conectar.' }])
     }
@@ -64,25 +72,33 @@ export default function Menu() {
   const totalItems = carrito.reduce((sum, p) => sum + p.cantidad, 0)
 
   return (
-    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', maxWidth: 480, margin: '0 auto', background: '#f8f7f4', minHeight: '100vh' }}>
-      
-      <div style={{ background: '#1a1a1a', padding: '20px 20px 16px', position: 'sticky', top: 0, zIndex: 10 }}>
-        <div style={{ fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>Mesa {tableId}</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Carta</div>
+    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
+
+      <div style={{ padding: '48px 24px 24px', borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: '#999', marginBottom: 8 }}>Mesa {tableId}</div>
+        <div style={{ fontSize: 32, fontWeight: 700, color: '#111', letterSpacing: -1 }}>Carta</div>
       </div>
 
-      <div style={{ padding: '16px 16px 120px' }}>
-        {platos.map(plato => (
-          <div key={plato.id} style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 15, color: '#1a1a1a', marginBottom: 3 }}>{plato.nombre}</div>
-                <div style={{ fontSize: 13, color: '#888', lineHeight: 1.4, marginBottom: 6 }}>{plato.descripcion}</div>
-                {plato.alergenos && <div style={{ fontSize: 11, color: '#bbb', background: '#f5f5f5', display: 'inline-block', padding: '2px 8px', borderRadius: 20 }}>{plato.alergenos}</div>}
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a', marginBottom: 8 }}>{plato.precio}€</div>
-                <button onClick={() => addToCarrito(plato)} style={{ width: 32, height: 32, borderRadius: '50%', background: '#1a1a1a', color: '#fff', border: 'none', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+      <div style={{ padding: '0 0 200px' }}>
+        {platos.map((plato, i) => (
+          <div key={plato.id} style={{ padding: '20px 24px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 4 }}>{plato.nombre}</div>
+              <div style={{ fontSize: 13, color: '#999', lineHeight: 1.5, marginBottom: plato.alergenos ? 8 : 0 }}>{plato.descripcion}</div>
+              {plato.alergenos && (
+                <div style={{ fontSize: 11, color: '#bbb', letterSpacing: 0.5 }}>{plato.alergenos}</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#111' }}>{Number(plato.precio).toFixed(2)}€</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {carrito.find(p => p.id === plato.id) && (
+                  <>
+                    <button onClick={() => removeFromCarrito(plato)} style={{ width: 28, height: 28, borderRadius: '50%', background: '#f5f5f5', border: 'none', fontSize: 16, cursor: 'pointer', color: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <span style={{ fontSize: 14, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{carrito.find(p => p.id === plato.id)?.cantidad}</span>
+                  </>
+                )}
+                <button onClick={() => addToCarrito(plato)} style={{ width: 28, height: 28, borderRadius: '50%', background: '#111', border: 'none', fontSize: 18, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
               </div>
             </div>
           </div>
@@ -90,34 +106,34 @@ export default function Menu() {
       </div>
 
       {carrito.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448 }}>
-          <button onClick={() => navigate(`/order/${restaurantId}/${tableId}`, { state: { carrito } })} style={{ width: '100%', padding: '16px 24px', background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ background: '#fff', color: '#1a1a1a', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{totalItems}</span>
+        <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448, zIndex: 20 }}>
+          <button onClick={() => navigate(`/order/${restaurantId}/${tableId}`, { state: { carrito } })} style={{ width: '100%', padding: '16px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 16, cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: 0.3 }}>
+            <span style={{ background: '#fff', color: '#111', borderRadius: '50%', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{totalItems}</span>
             <span>Ver pedido</span>
             <span>{total.toFixed(2)}€</span>
           </button>
         </div>
       )}
 
-      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448 }}>
+      <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448, zIndex: 20 }}>
         {chatAbierto && (
-          <div style={{ background: '#fff', borderRadius: 16, padding: 16, marginBottom: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
-            <div style={{ height: 180, overflowY: 'auto', marginBottom: 12 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 20, marginBottom: 10, boxShadow: '0 8px 40px rgba(0,0,0,0.12)', border: '1px solid #f0f0f0' }}>
+            <div ref={chatRef} style={{ height: 200, overflowY: 'auto', marginBottom: 14 }}>
               {chatMessages.map((m, i) => (
-                <div key={i} style={{ marginBottom: 8, textAlign: m.role === 'user' ? 'right' : 'left' }}>
-                  <span style={{ background: m.role === 'user' ? '#1a1a1a' : '#f5f5f5', color: m.role === 'user' ? '#fff' : '#1a1a1a', padding: '8px 12px', borderRadius: 12, fontSize: 13, display: 'inline-block', maxWidth: '85%', lineHeight: 1.4 }}>{m.content}</span>
+                <div key={i} style={{ marginBottom: 10, textAlign: m.role === 'user' ? 'right' : 'left' }}>
+                  <span style={{ background: m.role === 'user' ? '#111' : '#f5f5f5', color: m.role === 'user' ? '#fff' : '#111', padding: '9px 13px', borderRadius: 14, fontSize: 13, display: 'inline-block', maxWidth: '85%', lineHeight: 1.5 }}>{m.content}</span>
                 </div>
               ))}
-              {loading && <div style={{ fontSize: 12, color: '#bbb', padding: '4px 12px' }}>Escribiendo...</div>}
+              {loading && <div style={{ fontSize: 12, color: '#ccc', padding: '4px 13px' }}>···</div>}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Pregunta sobre el menú..." style={{ flex: 1, padding: '10px 14px', borderRadius: 10, border: '1px solid #eee', fontSize: 13, outline: 'none' }} />
-              <button onClick={sendMessage} style={{ padding: '10px 16px', background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13 }}>↑</button>
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Pregunta sobre el menú..." style={{ flex: 1, padding: '10px 14px', borderRadius: 12, border: '1px solid #eee', fontSize: 13, outline: 'none', background: '#fafafa' }} />
+              <button onClick={sendMessage} style={{ padding: '10px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 12, cursor: 'pointer', fontSize: 16 }}>↑</button>
             </div>
           </div>
         )}
-        <button onClick={() => setChatAbierto(!chatAbierto)} style={{ width: '100%', padding: '14px', background: chatAbierto ? '#f5f5f5' : '#1a1a1a', color: chatAbierto ? '#1a1a1a' : '#fff', border: 'none', borderRadius: 12, cursor: 'pointer', fontSize: 14, fontWeight: 500 }}>
-          {chatAbierto ? 'Cerrar asistente' : '💬 Pregunta al asistente IA'}
+        <button onClick={() => setChatAbierto(!chatAbierto)} style={{ width: '100%', padding: '14px', background: chatAbierto ? '#f5f5f5' : '#111', color: chatAbierto ? '#111' : '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 13, fontWeight: 500, letterSpacing: 0.3 }}>
+          {chatAbierto ? 'Cerrar asistente' : 'Asistente IA · Pregunta lo que quieras'}
         </button>
       </div>
     </div>
