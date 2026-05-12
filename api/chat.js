@@ -3,9 +3,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey = process.env.ANTHROPIC_KEY
-  console.log('API Key starts with:', apiKey ? apiKey.substring(0, 15) : 'UNDEFINED')
-
   try {
     const { messages, system } = req.body
 
@@ -13,7 +10,7 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': process.env.ANTHROPIC_KEY,
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
@@ -24,11 +21,9 @@ export default async function handler(req, res) {
       })
     })
 
-    const text = await response.text()
-    console.log('Response:', text.substring(0, 200))
-    const data = JSON.parse(text)
+    const data = await response.json()
     const reply = data?.content?.[0]?.text || data?.error?.message || 'Sin respuesta'
-    return res.status(200).json({ reply })
+    return res.status(200).json({ reply: String(reply) })
   } catch (error) {
     return res.status(500).json({ reply: 'Error: ' + error.message })
   }
