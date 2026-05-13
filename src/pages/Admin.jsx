@@ -43,8 +43,18 @@ export default function Admin() {
 
   async function agregarPlato() {
     if (!nuevoPlato.nombre || !nuevoPlato.precio) return
-    await supabase.from('platos').insert({ ...nuevoPlato, precio: parseFloat(nuevoPlato.precio), restaurante_id: RESTAURANTE_ID, activo: true })
-    setNuevoPlato({ nombre: '', descripcion: '', precio: '', alergenos: '' })
+    const payload = {
+      nombre: nuevoPlato.nombre,
+      descripcion: nuevoPlato.descripcion,
+      precio: parseFloat(nuevoPlato.precio),
+      alergenos: nuevoPlato.alergenos,
+      restaurante_id: RESTAURANTE_ID,
+      activo: true
+    }
+    if (nuevoPlato.imagen_url) payload.imagen_url = nuevoPlato.imagen_url
+    const { error } = await supabase.from('platos').insert(payload)
+    if (error) { alert('Error al guardar el plato: ' + error.message); return }
+    setNuevoPlato({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
     fetchPlatos()
   }
 
