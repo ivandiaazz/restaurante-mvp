@@ -12,51 +12,50 @@ export default function Order() {
   const navigate = useNavigate()
   const { state } = useLocation()
   const carrito = state?.carrito || []
-  const [pedidoEnviado, setPedidoEnviado] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const total = carrito.reduce((sum, p) => sum + p.precio * p.cantidad, 0)
 
   async function confirmarPedido() {
     setLoading(true)
-    const { error } = await supabase.from('pedidos').insert({
-      restaurante_id: restaurantId,
-      mesa: tableId,
-      items: carrito,
-      total,
-      estado: 'nuevo'
+    setError('')
+
+    // 1. Guardar pedido en Supabase con estado pendiente_pago
+    const { data: pedido, error: dbError } = await supabase
+      .from('pedidos')
+      .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
+      .select('id')
+      .single()
+
+    if (dbError || !pedido) {
+      setError('Error al guardar el pedido. Inténtalo de nuevo.')
+      setLoading(false)
+      return
+    }
+
+    // 2. Crear sesión de Stripe Checkout
+    const res = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: carrito, pedidoId: pedido.id, restaurantId, tableId })
     })
-    if (!error) setPedidoEnviado(true)
-    setLoading(false)
+    const { url, error: stripeError } = await res.json()
+
+    if (stripeError || !url) {
+      setError('Error al conectar con el sistema de pago. Inténtalo de nuevo.')
+      setLoading(false)
+      return
+    }
+
+    // 3. Redirigir a Stripe Checkout (soporta Apple Pay, Google Pay y tarjeta)
+    window.location.href = url
   }
 
-  if (pedidoEnviado) return (
-    <div style={{
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
-      maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#fff',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32
-    }}>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{
-          width: 72, height: 72, background: '#111', borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 24px', fontSize: 28, color: '#fff'
-        }}>✓</div>
-        <div style={{ fontSize: 26, fontWeight: 700, color: '#111', marginBottom: 10, letterSpacing: -1 }}>
-          Pedido enviado
-        </div>
-        <div style={{ fontSize: 15, color: '#6e6e73', lineHeight: 1.6 }}>
-          La cocina ya tiene tu pedido.<br />En breve te lo traemos.
-        </div>
-      </div>
-    </div>
-  )
+  const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
 
   return (
-    <div style={{
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
-      maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh'
-    }}>
+    <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
       {/* Header */}
       <div style={{ padding: '56px 24px 24px', borderBottom: '1px solid #f2f2f7' }}>
         <button
@@ -110,7 +109,13 @@ export default function Order() {
           </span>
         </div>
 
-        {/* Botón confirmar */}
+        {error && (
+          <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+            {error}
+          </div>
+        )}
+
+        {/* Botón pagar */}
         <button
           onClick={confirmarPedido}
           disabled={loading}
@@ -124,8 +129,11 @@ export default function Order() {
             transition: 'background 0.2s'
           }}
         >
-          {loading ? 'Enviando...' : 'Confirmar y enviar a cocina'}
+          {loading ? 'Redirigiendo al pago...' : 'Pagar con Apple Pay / tarjeta'}
         </button>
+        <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: '#aeaeb2' }}>
+          Pago seguro con Stripe · Apple Pay · Google Pay · Tarjeta
+        </div>
       </div>
     </div>
   )
