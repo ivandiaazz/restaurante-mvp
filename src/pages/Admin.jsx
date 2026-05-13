@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { QRCodeCanvas } from 'qrcode.react'
 
 const supabase = createClient(
   'https://vhaulvmtgomjgfkeqavg.supabase.co',
@@ -23,6 +24,7 @@ export default function Admin() {
   const [errorMsg, setErrorMsg] = useState('')
   const [okMsg, setOkMsg] = useState('')
   const [formKey, setFormKey] = useState(0)
+  const [numMesas, setNumMesas] = useState(10)
 
   useEffect(() => {
     fetchPedidos()
@@ -81,6 +83,18 @@ export default function Admin() {
     fetchPlatos()
   }
 
+  function descargarQR(mesa) {
+    const canvas = document.getElementById(`qr-canvas-${mesa}`)
+    if (!canvas) return
+    const url = canvas.toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `mesa-${mesa}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
   async function togglePlato(plato) {
     await supabase.from('platos').update({ activo: !plato.activo }).eq('id', plato.id)
     fetchPlatos()
@@ -107,7 +121,7 @@ export default function Admin() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0 }}>
-          {['pedidos', 'carta'].map(t => (
+          {['pedidos', 'carta', 'qr'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -117,11 +131,11 @@ export default function Admin() {
                 fontSize: 14, fontWeight: 600, fontFamily: font,
                 color: tab === t ? '#111' : '#aeaeb2',
                 borderBottom: tab === t ? '2px solid #111' : '2px solid transparent',
-                textTransform: 'capitalize', letterSpacing: 0.2,
+                letterSpacing: 0.2,
                 transition: 'color 0.15s'
               }}
             >
-              {t === 'pedidos' ? `Pedidos${pedidosActivos.length ? ` (${pedidosActivos.length})` : ''}` : 'Carta'}
+              {t === 'pedidos' ? `Pedidos${pedidosActivos.length ? ` (${pedidosActivos.length})` : ''}` : t === 'carta' ? 'Carta' : 'QR Mesas'}
             </button>
           ))}
         </div>
@@ -278,6 +292,59 @@ export default function Admin() {
             >
               {guardando ? 'Guardando...' : 'Añadir plato'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* QR Mesas */}
+      {tab === 'qr' && (
+        <div style={{ padding: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+            <span style={{ fontSize: 14, color: '#6e6e73', fontWeight: 500 }}>Número de mesas</span>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={numMesas}
+              onChange={e => setNumMesas(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+              style={{
+                width: 64, padding: '8px 12px', borderRadius: 10,
+                border: 'none', background: '#f5f5f7',
+                fontSize: 14, outline: 'none', textAlign: 'center',
+                fontFamily: font, color: '#111'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+            {Array.from({ length: numMesas }, (_, i) => i + 1).map(mesa => (
+              <div key={mesa} style={{
+                background: '#fafafa', borderRadius: 16, padding: '20px 16px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+                border: '1px solid #f2f2f7'
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#111', letterSpacing: 0.2 }}>
+                  Mesa {mesa}
+                </div>
+                <QRCodeCanvas
+                  id={`qr-canvas-${mesa}`}
+                  value={`https://restaurante-mvp-blue.vercel.app/menu/restaurante1/${mesa}`}
+                  size={130}
+                  level="M"
+                  marginSize={2}
+                />
+                <button
+                  onClick={() => descargarQR(mesa)}
+                  style={{
+                    fontSize: 12, fontWeight: 600, padding: '7px 18px',
+                    background: '#111', color: '#fff', border: 'none',
+                    borderRadius: 10, cursor: 'pointer', fontFamily: font
+                  }}
+                >
+                  Descargar
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
