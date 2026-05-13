@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     })
 
     const data = await response.json()
-    const reply = data?.content?.[0]?.text || data?.error?.message || 'Sin respuesta'
+    const reply = JSON.stringify(data)
     return res.status(200).json({ reply: String(reply) })
   } catch (error) {
     return res.status(500).json({ reply: 'Error: ' + error.message })
