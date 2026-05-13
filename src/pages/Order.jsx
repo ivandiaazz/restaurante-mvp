@@ -1,4 +1,4 @@
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useParams, useNavigate } from 'react-router-dom'
 import { createClient } from '@supabase/supabase-js'
 import { useState } from 'react'
 
@@ -9,6 +9,7 @@ const supabase = createClient(
 
 export default function Order() {
   const { restaurantId, tableId } = useParams()
+  const navigate = useNavigate()
   const { state } = useLocation()
   const carrito = state?.carrito || []
   const [pedidoEnviado, setPedidoEnviado] = useState(false)
@@ -22,7 +23,7 @@ export default function Order() {
       restaurante_id: restaurantId,
       mesa: tableId,
       items: carrito,
-      total: total,
+      total,
       estado: 'nuevo'
     })
     if (!error) setPedidoEnviado(true)
@@ -30,40 +31,99 @@ export default function Order() {
   }
 
   if (pedidoEnviado) return (
-    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f8f7f4', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+    <div style={{
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
+      maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#fff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32
+    }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ width: 72, height: 72, background: '#1a1a1a', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 32 }}>✓</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a', marginBottom: 8 }}>¡Pedido enviado!</div>
-        <div style={{ fontSize: 14, color: '#888', lineHeight: 1.6 }}>La cocina ya tiene tu pedido.<br/>En breve te lo traemos.</div>
+        <div style={{
+          width: 72, height: 72, background: '#111', borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 24px', fontSize: 28, color: '#fff'
+        }}>✓</div>
+        <div style={{ fontSize: 26, fontWeight: 700, color: '#111', marginBottom: 10, letterSpacing: -1 }}>
+          Pedido enviado
+        </div>
+        <div style={{ fontSize: 15, color: '#6e6e73', lineHeight: 1.6 }}>
+          La cocina ya tiene tu pedido.<br />En breve te lo traemos.
+        </div>
       </div>
     </div>
   )
 
   return (
-    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', maxWidth: 480, margin: '0 auto', background: '#f8f7f4', minHeight: '100vh' }}>
-      <div style={{ background: '#1a1a1a', padding: '20px 20px 16px' }}>
-        <div style={{ fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>Mesa {tableId}</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Tu pedido</div>
+    <div style={{
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
+      maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh'
+    }}>
+      {/* Header */}
+      <div style={{ padding: '56px 24px 24px', borderBottom: '1px solid #f2f2f7' }}>
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 15, color: '#111', padding: 0, marginBottom: 20,
+            display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500,
+            fontFamily: 'inherit'
+          }}
+        >
+          ← Volver
+        </button>
+        <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', marginBottom: 8, fontWeight: 500 }}>
+          Mesa {tableId}
+        </div>
+        <div style={{ fontSize: 34, fontWeight: 700, color: '#111', letterSpacing: -1.5, lineHeight: 1 }}>
+          Tu pedido
+        </div>
       </div>
 
-      <div style={{ padding: 16 }}>
-        <div style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-          {carrito.map(p => (
-            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f5f5f5', fontSize: 14 }}>
-              <div>
-                <span style={{ fontWeight: 600, color: '#1a1a1a' }}>{p.cantidad}×</span>
-                <span style={{ color: '#1a1a1a', marginLeft: 8 }}>{p.nombre}</span>
-              </div>
-              <span style={{ fontWeight: 600, color: '#1a1a1a' }}>{(p.precio * p.cantidad).toFixed(2)}€</span>
+      {/* Items */}
+      <div style={{ padding: '8px 24px 0' }}>
+        {carrito.map(p => (
+          <div key={p.id} style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '16px 0', borderBottom: '1px solid #f2f2f7'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{
+                background: '#111', color: '#fff', borderRadius: '50%',
+                width: 24, height: 24, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0
+              }}>{p.cantidad}</span>
+              <span style={{ fontSize: 15, color: '#111', fontWeight: 500 }}>{p.nombre}</span>
             </div>
-          ))}
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>
-            <span>Total</span>
-            <span>{total.toFixed(2)}€</span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#111', flexShrink: 0 }}>
+              {(p.precio * p.cantidad).toFixed(2)}€
+            </span>
           </div>
+        ))}
+
+        {/* Total */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '20px 0 32px'
+        }}>
+          <span style={{ fontSize: 17, fontWeight: 600, color: '#111' }}>Total</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: '#111', letterSpacing: -0.5 }}>
+            {total.toFixed(2)}€
+          </span>
         </div>
 
-        <button onClick={confirmarPedido} disabled={loading} style={{ width: '100%', padding: 16, background: '#1a1a1a', color: '#fff', border: 'none', borderRadius: 14, cursor: 'pointer', fontSize: 15, fontWeight: 600 }}>
+        {/* Botón confirmar */}
+        <button
+          onClick={confirmarPedido}
+          disabled={loading}
+          style={{
+            width: '100%', padding: '16px 20px',
+            background: loading ? '#6e6e73' : '#111',
+            color: '#fff', border: 'none', borderRadius: 16,
+            cursor: loading ? 'default' : 'pointer',
+            fontSize: 15, fontWeight: 600, letterSpacing: 0.2,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+            transition: 'background 0.2s'
+          }}
+        >
           {loading ? 'Enviando...' : 'Confirmar y enviar a cocina'}
         </button>
       </div>
