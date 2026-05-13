@@ -98,22 +98,35 @@ export default function Menu() {
             <div key={plato.id} style={{
               padding: '20px 24px',
               borderBottom: '1px solid #f2f2f7',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16
             }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>
-                  {plato.nombre}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 14, alignItems: 'center' }}>
+                {plato.imagen_url && (
+                  <img
+                    src={plato.imagen_url}
+                    alt={plato.nombre}
+                    style={{
+                      width: 72, height: 72, borderRadius: 12,
+                      objectFit: 'cover', flexShrink: 0,
+                      background: '#f2f2f7'
+                    }}
+                  />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>
+                    {plato.nombre}
+                  </div>
+                  {plato.descripcion && (
+                    <div style={{ fontSize: 13, color: '#6e6e73', lineHeight: 1.5, marginBottom: plato.alergenos ? 6 : 0 }}>
+                      {plato.descripcion}
+                    </div>
+                  )}
+                  {plato.alergenos && (
+                    <div style={{ fontSize: 11, color: '#aeaeb2', letterSpacing: 0.3 }}>
+                      {plato.alergenos}
+                    </div>
+                  )}
                 </div>
-                {plato.descripcion && (
-                  <div style={{ fontSize: 13, color: '#6e6e73', lineHeight: 1.5, marginBottom: plato.alergenos ? 6 : 0 }}>
-                    {plato.descripcion}
-                  </div>
-                )}
-                {plato.alergenos && (
-                  <div style={{ fontSize: 11, color: '#aeaeb2', letterSpacing: 0.3 }}>
-                    {plato.alergenos}
-                  </div>
-                )}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>

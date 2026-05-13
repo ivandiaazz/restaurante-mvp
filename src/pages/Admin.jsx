@@ -18,7 +18,7 @@ export default function Admin() {
   const [tab, setTab] = useState('pedidos')
   const [pedidos, setPedidos] = useState([])
   const [platos, setPlatos] = useState([])
-  const [nuevoPlato, setNuevoPlato] = useState({ nombre: '', descripcion: '', precio: '', alergenos: '' })
+  const [nuevoPlato, setNuevoPlato] = useState({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
 
   useEffect(() => {
     fetchPedidos()
@@ -208,6 +208,7 @@ export default function Admin() {
               { key: 'descripcion', placeholder: 'Descripción' },
               { key: 'precio', placeholder: 'Precio (ej: 12.50)' },
               { key: 'alergenos', placeholder: 'Alérgenos (ej: gluten, lácteos)' },
+              { key: 'imagen_url', placeholder: 'URL de imagen (opcional)' },
             ].map(({ key, placeholder }) => (
               <input
                 key={key}
