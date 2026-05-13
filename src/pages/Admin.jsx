@@ -19,6 +19,8 @@ export default function Admin() {
   const [pedidos, setPedidos] = useState([])
   const [platos, setPlatos] = useState([])
   const [nuevoPlato, setNuevoPlato] = useState({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
+  const [guardando, setGuardando] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
     fetchPedidos()
@@ -43,6 +45,8 @@ export default function Admin() {
 
   async function agregarPlato() {
     if (!nuevoPlato.nombre || !nuevoPlato.precio) return
+    setGuardando(true)
+    setErrorMsg('')
     const payload = {
       nombre: nuevoPlato.nombre,
       descripcion: nuevoPlato.descripcion,
@@ -52,8 +56,16 @@ export default function Admin() {
       activo: true
     }
     if (nuevoPlato.imagen_url) payload.imagen_url = nuevoPlato.imagen_url
-    const { error } = await supabase.from('platos').insert(payload)
-    if (error) { alert('Error al guardar el plato: ' + error.message); return }
+    const { data, error } = await supabase.from('platos').insert(payload).select()
+    setGuardando(false)
+    if (error) {
+      setErrorMsg('Error: ' + error.message)
+      return
+    }
+    if (!data || data.length === 0) {
+      setErrorMsg('El plato no se guardó. Revisa los permisos de la tabla en Supabase (RLS).')
+      return
+    }
     setNuevoPlato({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
     fetchPlatos()
   }
@@ -224,7 +236,7 @@ export default function Admin() {
                 key={key}
                 placeholder={placeholder}
                 value={nuevoPlato[key]}
-                onChange={e => setNuevoPlato({ ...nuevoPlato, [key]: e.target.value })}
+                onChange={e => { const v = e.target.value; setNuevoPlato(prev => ({ ...prev, [key]: v })) }}
                 style={{
                   padding: '12px 14px', borderRadius: 12,
                   border: 'none', background: '#f5f5f7',
@@ -233,16 +245,22 @@ export default function Admin() {
                 }}
               />
             ))}
+            {errorMsg && (
+              <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 10, padding: '10px 14px' }}>
+                {errorMsg}
+              </div>
+            )}
             <button
               onClick={agregarPlato}
+              disabled={guardando}
               style={{
-                padding: '14px 20px', background: '#111', color: '#fff',
-                border: 'none', borderRadius: 12, cursor: 'pointer',
+                padding: '14px 20px', background: guardando ? '#6e6e73' : '#111', color: '#fff',
+                border: 'none', borderRadius: 12, cursor: guardando ? 'default' : 'pointer',
                 fontSize: 14, fontWeight: 600, fontFamily: font,
                 marginTop: 4
               }}
             >
-              Añadir plato
+              {guardando ? 'Guardando...' : 'Añadir plato'}
             </button>
           </div>
         </div>
