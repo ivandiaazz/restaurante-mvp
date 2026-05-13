@@ -60,10 +60,20 @@ export default function Menu() {
           system: `Eres el asistente de un restaurante. Conoces el menú al detalle. Sé amable, conciso y útil. El menú es:\n${menuTexto}`
         })
       })
-      const json = await response.json()
-      const reply = json && json.reply ? String(json.reply) : 'Lo siento, inténtalo de nuevo.'
+      const text = await response.text()
+      console.log('Raw response:', text)
+      let reply = 'Lo siento, inténtalo de nuevo.'
+      try {
+        const json = JSON.parse(text)
+        console.log('Parsed json:', JSON.stringify(json))
+        if (json.reply) reply = String(json.reply)
+        else if (json.content && json.content[0] && json.content[0].text) reply = String(json.content[0].text)
+        else if (json.error) reply = String(json.error)
+      } catch (e) {
+        reply = text
+      }
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
-    } catch {
+    } catch (err) {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Error al conectar.' }])
     }
     setLoading(false)
