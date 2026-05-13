@@ -1,11 +1,16 @@
 import { useLocation, useParams, useNavigate } from 'react-router-dom'
 import { createClient } from '@supabase/supabase-js'
 import { useState } from 'react'
+import { loadStripe } from '@stripe/stripe-js'
 
 const supabase = createClient(
   'https://vhaulvmtgomjgfkeqavg.supabase.co',
   'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
 )
+
+// Inicializar Stripe al cargar el módulo mejora el rendimiento y
+// habilita la verificación de dominio para Apple Pay
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
 
 export default function Order() {
   const { restaurantId, tableId } = useParams()
@@ -49,6 +54,12 @@ export default function Order() {
     }
 
     // 3. Redirigir a Stripe Checkout (soporta Apple Pay, Google Pay y tarjeta)
+    const stripe = await stripePromise
+    if (!stripe) {
+      setError('No se pudo cargar el sistema de pago. Recarga la página.')
+      setLoading(false)
+      return
+    }
     window.location.href = url
   }
 
@@ -129,7 +140,7 @@ export default function Order() {
             transition: 'background 0.2s'
           }}
         >
-          {loading ? 'Redirigiendo al pago...' : 'Pagar con Apple Pay / tarjeta'}
+          {loading ? 'Conectando con el pago...' : 'Pagar pedido'}
         </button>
         <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: '#aeaeb2' }}>
           Pago seguro con Stripe · Apple Pay · Google Pay · Tarjeta
