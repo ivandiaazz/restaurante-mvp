@@ -45,10 +45,12 @@ export default function Order() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: carrito, pedidoId: pedido.id, restaurantId, tableId })
     })
-    const { url, error: stripeError } = await res.json()
+    const json = await res.json()
+    const { url, error: stripeError } = json
+    console.log('[order] checkout response:', { status: res.status, url: !!url, error: stripeError })
 
     if (stripeError || !url) {
-      setError('Error al conectar con el sistema de pago. Inténtalo de nuevo.')
+      setError(stripeError || 'No se recibió URL de pago. Inténtalo de nuevo.')
       setLoading(false)
       return
     }
