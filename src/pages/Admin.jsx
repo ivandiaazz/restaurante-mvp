@@ -7,7 +7,7 @@ const supabase = createClient(
   'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
 )
 
-const RESTAURANTE_ID = 'restaurante1'
+const RESTAURANTE_ID = 'gastro-gaudi'
 
 const estadoConfig = {
   nuevo:      { label: 'Nuevo',      dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
@@ -328,7 +328,7 @@ export default function Admin() {
                 </div>
                 <QRCodeCanvas
                   id={`qr-canvas-${mesa}`}
-                  value={`https://restaurante-mvp-blue.vercel.app/menu/restaurante1/${mesa}`}
+                  value={`https://restaurante-mvp-blue.vercel.app/menu/${RESTAURANTE_ID}/${mesa}`}
                   size={130}
                   level="M"
                   marginSize={2}

@@ -7,6 +7,14 @@ const supabase = createClient(
   'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
 )
 
+const GOLD   = '#c9a465'
+const BG     = '#0f0f0f'
+const SURF   = '#1a1a1a'
+const TEXT   = '#f0ebe0'
+const MUTED  = '#7a6a54'
+const SEP    = 'rgba(201,164,101,0.12)'
+const font   = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+
 export default function Menu() {
   const { restaurantId, tableId } = useParams()
   const navigate = useNavigate()
@@ -61,7 +69,7 @@ export default function Menu() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [...chatMessages, userMsg],
-          system: `Eres el asistente de un restaurante. Conoces el menú al detalle. Sé amable, conciso y útil. El menú es:\n${menuTexto}`
+          system: `Eres el asistente del Gastro Gaudí, un gastrobar moderno en Mataró. Conoces el menú al detalle. Sé amable, conciso y con personalidad. El menú es:\n${menuTexto}`
         })
       })
       const json = await response.json()
@@ -72,32 +80,52 @@ export default function Menu() {
     setLoading(false)
   }
 
-  const total = carrito.reduce((sum, p) => sum + p.precio * p.cantidad, 0)
+  const total      = carrito.reduce((sum, p) => sum + p.precio * p.cantidad, 0)
   const totalItems = carrito.reduce((sum, p) => sum + p.cantidad, 0)
 
   return (
-    <div style={{
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
-      maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh'
-    }}>
-      {/* Header */}
-      <div style={{ padding: '56px 24px 24px', borderBottom: '1px solid #f2f2f7' }}>
-        <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', marginBottom: 8, fontWeight: 500 }}>
-          Mesa {tableId}
-        </div>
-        <div style={{ fontSize: 34, fontWeight: 700, color: '#111', letterSpacing: -1.5, lineHeight: 1 }}>
-          Carta
+    <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: BG, minHeight: '100vh' }}>
+
+      {/* ── Hero ── */}
+      <div style={{ position: 'relative', height: 230, overflow: 'hidden' }}>
+        <img
+          src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80"
+          alt="Gastro Gaudí terraza"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+        {/* gradiente oscuro */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.82) 100%)'
+        }} />
+        {/* texto sobre imagen */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 22px' }}>
+          <div style={{
+            fontSize: 10, letterSpacing: 4, color: GOLD,
+            textTransform: 'uppercase', fontWeight: 600, marginBottom: 6
+          }}>
+            Mesa {tableId}
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: TEXT, letterSpacing: -0.5, lineHeight: 1.1 }}>
+            Gastro Gaudí
+          </div>
+          <div style={{
+            fontSize: 11, color: 'rgba(240,235,224,0.45)',
+            marginTop: 5, letterSpacing: 2, textTransform: 'uppercase'
+          }}>
+            Gastrobar · Mataró
+          </div>
         </div>
       </div>
 
-      {/* Lista de platos */}
+      {/* ── Lista de platos ── */}
       <div style={{ paddingBottom: 220 }}>
         {platos.map(plato => {
           const enCarrito = carrito.find(p => p.id === plato.id)
           return (
             <div key={plato.id} style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid #f2f2f7',
+              padding: '18px 24px',
+              borderBottom: `1px solid ${SEP}`,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16
             }}>
               <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 14, alignItems: 'center' }}>
@@ -106,23 +134,22 @@ export default function Menu() {
                     src={plato.imagen_url}
                     alt={plato.nombre}
                     style={{
-                      width: 72, height: 72, borderRadius: 12,
-                      objectFit: 'cover', flexShrink: 0,
-                      background: '#f2f2f7'
+                      width: 68, height: 68, borderRadius: 10,
+                      objectFit: 'cover', flexShrink: 0, background: SURF
                     }}
                   />
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: TEXT, marginBottom: 3, lineHeight: 1.3 }}>
                     {plato.nombre}
                   </div>
                   {plato.descripcion && (
-                    <div style={{ fontSize: 13, color: '#6e6e73', lineHeight: 1.5, marginBottom: plato.alergenos ? 6 : 0 }}>
+                    <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.5, marginBottom: plato.alergenos ? 5 : 0 }}>
                       {plato.descripcion}
                     </div>
                   )}
                   {plato.alergenos && (
-                    <div style={{ fontSize: 11, color: '#aeaeb2', letterSpacing: 0.3 }}>
+                    <div style={{ fontSize: 10, color: '#4a3a28', letterSpacing: 0.3 }}>
                       {plato.alergenos}
                     </div>
                   )}
@@ -130,7 +157,7 @@ export default function Menu() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#111' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>
                   {Number(plato.precio).toFixed(2)}€
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -140,12 +167,12 @@ export default function Menu() {
                         onClick={() => removeFromCarrito(plato)}
                         style={{
                           width: 28, height: 28, borderRadius: '50%',
-                          background: '#f2f2f7', border: 'none',
-                          fontSize: 18, cursor: 'pointer', color: '#111',
+                          background: SURF, border: `1px solid ${SEP}`,
+                          fontSize: 18, cursor: 'pointer', color: TEXT,
                           display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1
                         }}
                       >−</button>
-                      <span style={{ fontSize: 14, fontWeight: 600, minWidth: 18, textAlign: 'center', color: '#111' }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, minWidth: 18, textAlign: 'center', color: TEXT }}>
                         {enCarrito.cantidad}
                       </span>
                     </>
@@ -154,9 +181,10 @@ export default function Menu() {
                     onClick={() => addToCarrito(plato)}
                     style={{
                       width: 28, height: 28, borderRadius: '50%',
-                      background: '#111', border: 'none',
-                      fontSize: 20, cursor: 'pointer', color: '#fff',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1
+                      background: GOLD, border: 'none',
+                      fontSize: 20, cursor: 'pointer', color: BG,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                      fontWeight: 700
                     }}
                   >+</button>
                 </div>
@@ -166,7 +194,7 @@ export default function Menu() {
         })}
       </div>
 
-      {/* Botón ver pedido */}
+      {/* ── Botón ver pedido ── */}
       {carrito.length > 0 && (
         <div style={{
           position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
@@ -176,15 +204,15 @@ export default function Menu() {
             onClick={() => navigate(`/order/${restaurantId}/${tableId}`, { state: { carrito } })}
             style={{
               width: '100%', padding: '16px 20px',
-              background: '#111', color: '#fff', border: 'none',
+              background: GOLD, color: BG, border: 'none',
               borderRadius: 16, cursor: 'pointer',
-              fontSize: 15, fontWeight: 600,
+              fontSize: 15, fontWeight: 700,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              boxShadow: '0 4px 24px rgba(0,0,0,0.18)'
+              boxShadow: '0 4px 24px rgba(201,164,101,0.35)'
             }}
           >
             <span style={{
-              background: '#fff', color: '#111', borderRadius: '50%',
+              background: BG, color: GOLD, borderRadius: '50%',
               width: 26, height: 26, display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontSize: 12, fontWeight: 700
             }}>{totalItems}</span>
@@ -194,22 +222,22 @@ export default function Menu() {
         </div>
       )}
 
-      {/* Chat asistente */}
+      {/* ── Chat asistente ── */}
       <div style={{
         position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)',
         width: 'calc(100% - 32px)', maxWidth: 448, zIndex: 20
       }}>
         {chatAbierto && (
           <div style={{
-            background: '#fff', borderRadius: 20, padding: '20px 20px 16px', marginBottom: 10,
-            boxShadow: '0 8px 40px rgba(0,0,0,0.10)', border: '1px solid #f2f2f7'
+            background: SURF, borderRadius: 20, padding: '20px 20px 16px', marginBottom: 10,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.6)', border: `1px solid ${SEP}`
           }}>
             <div ref={chatRef} style={{ height: 200, overflowY: 'auto', marginBottom: 14 }}>
               {chatMessages.map((m, i) => (
                 <div key={i} style={{ marginBottom: 8, textAlign: m.role === 'user' ? 'right' : 'left' }}>
                   <span style={{
-                    background: m.role === 'user' ? '#111' : '#f2f2f7',
-                    color: m.role === 'user' ? '#fff' : '#111',
+                    background: m.role === 'user' ? GOLD : '#252525',
+                    color: m.role === 'user' ? BG : TEXT,
                     padding: '9px 13px', borderRadius: 14,
                     fontSize: 13, display: 'inline-block', maxWidth: '85%', lineHeight: 1.5
                   }}>
@@ -218,7 +246,7 @@ export default function Menu() {
                 </div>
               ))}
               {loading && (
-                <div style={{ fontSize: 13, color: '#aeaeb2', padding: '4px 13px', letterSpacing: 2 }}>···</div>
+                <div style={{ fontSize: 13, color: MUTED, padding: '4px 13px', letterSpacing: 3 }}>···</div>
               )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -229,15 +257,17 @@ export default function Menu() {
                 placeholder="Pregunta sobre el menú..."
                 style={{
                   flex: 1, padding: '10px 14px', borderRadius: 12,
-                  border: 'none', fontSize: 13, outline: 'none',
-                  background: '#f5f5f7', color: '#111'
+                  border: `1px solid ${SEP}`, fontSize: 13, outline: 'none',
+                  background: '#252525', color: TEXT,
+                  fontFamily: font
                 }}
               />
               <button
                 onClick={sendMessage}
                 style={{
-                  padding: '10px 16px', background: '#111', color: '#fff',
-                  border: 'none', borderRadius: 12, cursor: 'pointer', fontSize: 16
+                  padding: '10px 16px', background: GOLD, color: BG,
+                  border: 'none', borderRadius: 12, cursor: 'pointer',
+                  fontSize: 16, fontWeight: 700
                 }}
               >↑</button>
             </div>
@@ -247,10 +277,12 @@ export default function Menu() {
           onClick={() => setChatAbierto(!chatAbierto)}
           style={{
             width: '100%', padding: 14,
-            background: chatAbierto ? '#f5f5f7' : '#111',
-            color: chatAbierto ? '#111' : '#fff',
-            border: 'none', borderRadius: 14, cursor: 'pointer',
-            fontSize: 13, fontWeight: 500, letterSpacing: 0.3
+            background: SURF,
+            color: GOLD,
+            border: `1px solid rgba(201,164,101,0.22)`,
+            borderRadius: 14, cursor: 'pointer',
+            fontSize: 13, fontWeight: 500, letterSpacing: 0.3,
+            fontFamily: font
           }}
         >
           {chatAbierto ? 'Cerrar asistente' : 'Asistente IA · Pregunta lo que quieras'}
