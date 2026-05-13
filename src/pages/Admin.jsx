@@ -304,9 +304,9 @@ export default function Admin() {
             <input
               type="number"
               min="1"
-              max="50"
+              max="100"
               value={numMesas}
-              onChange={e => setNumMesas(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+              onChange={e => setNumMesas(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
               style={{
                 width: 64, padding: '8px 12px', borderRadius: 10,
                 border: 'none', background: '#f5f5f7',
