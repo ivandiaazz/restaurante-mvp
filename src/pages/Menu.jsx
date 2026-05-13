@@ -26,6 +26,7 @@ export default function Menu() {
   ])
   const [loading, setLoading] = useState(false)
   const [chatAbierto, setChatAbierto] = useState(false)
+  const [fetchError, setFetchError] = useState('')
   const chatRef = useRef(null)
 
   useEffect(() => { fetchPlatos() }, [])
@@ -34,7 +35,13 @@ export default function Menu() {
   }, [chatMessages])
 
   async function fetchPlatos() {
-    const { data } = await supabase.from('platos').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
+    const { data, error } = await supabase.from('platos').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
+    if (error) {
+      console.error('[menu] fetchPlatos error:', error)
+      setFetchError(error.message)
+      return
+    }
+    console.log(`[menu] fetchPlatos: ${data?.length ?? 0} platos para restaurante_id="${restaurantId}"`)
     if (data) setPlatos(data)
   }
 
@@ -120,6 +127,16 @@ export default function Menu() {
 
       {/* ── Lista de platos ── */}
       <div style={{ paddingBottom: 220 }}>
+        {fetchError && (
+          <div style={{ padding: '20px 24px', color: '#dc2626', fontSize: 13 }}>
+            Error cargando el menú: {fetchError}
+          </div>
+        )}
+        {!fetchError && platos.length === 0 && (
+          <div style={{ padding: '40px 24px', color: MUTED, fontSize: 14, textAlign: 'center' }}>
+            Cargando carta…
+          </div>
+        )}
         {platos.map(plato => {
           const enCarrito = carrito.find(p => p.id === plato.id)
           return (
