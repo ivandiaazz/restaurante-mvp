@@ -24,7 +24,7 @@ export default async function handler(req, res) {
       // 'card' incluye automáticamente Apple Pay y Google Pay en Stripe Checkout
       // cuando el dispositivo/navegador del cliente los soporta.
       // 'link' activa Stripe Link (pago con un clic para usuarios registrados).
-      payment_method_types: ['card', 'link'],
+      payment_method_types: ['card', 'link', 'bizum'],
       line_items: items.map(item => ({
         price_data: {
           currency: 'eur',
