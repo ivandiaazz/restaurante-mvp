@@ -21,6 +21,8 @@ export default function Admin() {
   const [nuevoPlato, setNuevoPlato] = useState({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
   const [guardando, setGuardando] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [okMsg, setOkMsg] = useState('')
+  const [formKey, setFormKey] = useState(0)
 
   useEffect(() => {
     fetchPedidos()
@@ -44,34 +46,38 @@ export default function Admin() {
   }
 
   async function agregarPlato() {
-    if (!nuevoPlato.nombre || !nuevoPlato.precio) return
-    setGuardando(true)
     setErrorMsg('')
+    setOkMsg('')
+    const nombre = nuevoPlato.nombre?.trim()
+    const precio = nuevoPlato.precio?.toString().trim()
+    if (!nombre || !precio) {
+      setErrorMsg('Nombre y precio son obligatorios.')
+      return
+    }
+    setGuardando(true)
     const payload = {
-      nombre: nuevoPlato.nombre,
-      descripcion: nuevoPlato.descripcion,
-      precio: parseFloat(nuevoPlato.precio),
-      alergenos: nuevoPlato.alergenos,
+      nombre,
+      descripcion: nuevoPlato.descripcion?.trim() ?? '',
+      precio: parseFloat(precio),
+      alergenos: nuevoPlato.alergenos?.trim() ?? '',
       restaurante_id: RESTAURANTE_ID,
       activo: true
     }
-    if (nuevoPlato.imagen_url) payload.imagen_url = nuevoPlato.imagen_url
-    const { data, error, status, statusText } = await supabase.from('platos').insert(payload).select()
-    console.log('[Admin] insert result →', { data, error, status, statusText, payload })
+    if (nuevoPlato.imagen_url?.trim()) payload.imagen_url = nuevoPlato.imagen_url.trim()
+    const { data, error, status } = await supabase.from('platos').insert(payload).select()
+    console.log('[Admin] insert →', { payload, data, error, status })
     setGuardando(false)
     if (error) {
-      const msg = `[${status}] ${error.message} (${error.code ?? statusText})`
-      console.error('[Admin] Supabase error:', msg)
-      setErrorMsg(msg)
+      setErrorMsg(`Error Supabase [${status}]: ${error.message}`)
       return
     }
     if (!data || data.length === 0) {
-      const msg = `El INSERT no devolvió filas (status ${status}). Posible bloqueo por RLS. Ve a Supabase → Authentication → Policies y añade una política INSERT en la tabla "platos".`
-      console.error('[Admin]', msg)
-      setErrorMsg(msg)
+      setErrorMsg(`Sin respuesta del servidor (HTTP ${status}). Revisa los permisos RLS en la tabla "platos".`)
       return
     }
+    setOkMsg(`"${nombre}" añadido correctamente.`)
     setNuevoPlato({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
+    setFormKey(k => k + 1)
     fetchPlatos()
   }
 
@@ -229,19 +235,19 @@ export default function Admin() {
           <div style={{ fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 14 }}>
             Añadir plato
           </div>
-          <div style={{ display: 'grid', gap: 10 }}>
+          <div key={formKey} style={{ display: 'grid', gap: 10 }}>
             {[
-              { key: 'nombre', placeholder: 'Nombre' },
-              { key: 'descripcion', placeholder: 'Descripción' },
-              { key: 'precio', placeholder: 'Precio (ej: 12.50)' },
-              { key: 'alergenos', placeholder: 'Alérgenos (ej: gluten, lácteos)' },
-              { key: 'imagen_url', placeholder: 'URL de imagen (opcional)' },
-            ].map(({ key, placeholder }) => (
+              { field: 'nombre', placeholder: 'Nombre' },
+              { field: 'descripcion', placeholder: 'Descripción' },
+              { field: 'precio', placeholder: 'Precio (ej: 12.50)' },
+              { field: 'alergenos', placeholder: 'Alérgenos (ej: gluten, lácteos)' },
+              { field: 'imagen_url', placeholder: 'URL de imagen (opcional)' },
+            ].map(({ field, placeholder }) => (
               <input
-                key={key}
+                key={field}
                 placeholder={placeholder}
-                value={nuevoPlato[key]}
-                onChange={e => { const v = e.target.value; setNuevoPlato(prev => ({ ...prev, [key]: v })) }}
+                value={nuevoPlato[field] ?? ''}
+                onChange={e => { const v = e.target.value; setNuevoPlato(prev => ({ ...prev, [field]: v })) }}
                 style={{
                   padding: '12px 14px', borderRadius: 12,
                   border: 'none', background: '#f5f5f7',
@@ -253,6 +259,11 @@ export default function Admin() {
             {errorMsg && (
               <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 10, padding: '10px 14px' }}>
                 {errorMsg}
+              </div>
+            )}
+            {okMsg && (
+              <div style={{ fontSize: 13, color: '#166534', background: '#f0fdf4', borderRadius: 10, padding: '10px 14px' }}>
+                {okMsg}
               </div>
             )}
             <button
