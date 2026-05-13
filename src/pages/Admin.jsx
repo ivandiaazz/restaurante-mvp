@@ -56,14 +56,19 @@ export default function Admin() {
       activo: true
     }
     if (nuevoPlato.imagen_url) payload.imagen_url = nuevoPlato.imagen_url
-    const { data, error } = await supabase.from('platos').insert(payload).select()
+    const { data, error, status, statusText } = await supabase.from('platos').insert(payload).select()
+    console.log('[Admin] insert result →', { data, error, status, statusText, payload })
     setGuardando(false)
     if (error) {
-      setErrorMsg('Error: ' + error.message)
+      const msg = `[${status}] ${error.message} (${error.code ?? statusText})`
+      console.error('[Admin] Supabase error:', msg)
+      setErrorMsg(msg)
       return
     }
     if (!data || data.length === 0) {
-      setErrorMsg('El plato no se guardó. Revisa los permisos de la tabla en Supabase (RLS).')
+      const msg = `El INSERT no devolvió filas (status ${status}). Posible bloqueo por RLS. Ve a Supabase → Authentication → Policies y añade una política INSERT en la tabla "platos".`
+      console.error('[Admin]', msg)
+      setErrorMsg(msg)
       return
     }
     setNuevoPlato({ nombre: '', descripcion: '', precio: '', alergenos: '', imagen_url: '' })
