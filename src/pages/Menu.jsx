@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   'https://vhaulvmtgomjgfkeqavg.supabase.co',
-  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
+  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw',
+  { global: { fetch: (url, opts = {}) => fetch(url, { ...opts, cache: 'no-store' }) } }
 )
 
 const GOLD   = '#c9a465'
