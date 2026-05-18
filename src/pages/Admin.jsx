@@ -5,9 +5,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
 const estadoConfig = {
-  nuevo:      { label: 'Nuevo',      dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
-  preparando: { label: 'Preparando', dot: '#3b82f6', bg: '#eff6ff', text: '#1e40af' },
-  listo:      { label: 'Listo',      dot: '#22c55e', bg: '#f0fdf4', text: '#166534' },
+  pendiente_pago: { label: 'Pendiente pago', dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280' },
+  nuevo:          { label: 'Nuevo',          dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
+  pagado:         { label: 'Pagado',         dot: '#10b981', bg: '#ecfdf5', text: '#065f46' },
+  preparando:     { label: 'Preparando',     dot: '#3b82f6', bg: '#eff6ff', text: '#1e40af' },
+  listo:          { label: 'Listo',          dot: '#22c55e', bg: '#f0fdf4', text: '#166534' },
 }
 
 const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
@@ -94,6 +96,11 @@ export default function Admin() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'pedidos', filter: `restaurante_id=eq.${restaurantId}` },
         payload => { setPedidos(prev => [payload.new, ...prev]) }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'pedidos', filter: `restaurante_id=eq.${restaurantId}` },
+        payload => { setPedidos(prev => prev.map(p => p.id === payload.new.id ? payload.new : p)) }
       )
       .subscribe()
 
@@ -190,7 +197,7 @@ export default function Admin() {
     navigate('/login', { replace: true })
   }
 
-  const pedidosActivos = pedidos.filter(p => p.estado !== 'listo' && p.estado !== 'pagado')
+  const pedidosActivos = pedidos.filter(p => p.estado !== 'listo')
   const nombreRestaurante = restaurantInfo?.nombre ?? restaurantId
 
   return (
@@ -274,10 +281,12 @@ export default function Admin() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>{Number(pedido.total).toFixed(2)}€</span>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    {pedido.estado === 'nuevo' && (
+                    {(pedido.estado === 'nuevo' || pedido.estado === 'pagado') && (
                       <button onClick={() => cambiarEstado(pedido, 'preparando')} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, border: '1px solid #e8e8ed', borderRadius: 10, cursor: 'pointer', background: '#fff', color: '#111', fontFamily: font }}>Preparando</button>
                     )}
-                    <button onClick={() => cambiarEstado(pedido, 'listo')} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#111', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: font }}>Listo</button>
+                    {pedido.estado !== 'pendiente_pago' && (
+                      <button onClick={() => cambiarEstado(pedido, 'listo')} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, background: '#111', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: font }}>Listo</button>
+                    )}
                   </div>
                 </div>
               </div>
