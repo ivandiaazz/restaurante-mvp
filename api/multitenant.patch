@@ -1,0 +1,1287 @@
+From fb73aedd8d993533de878663a899aa8100f3008b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 18 May 2026 09:28:11 +0000
+Subject: [PATCH 1/2] feat: implement full multi-tenant auth and restaurant
+ isolation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Add Supabase Auth (email + password) via shared client in src/lib/supabase.js
+- AuthContext provides session, restaurant data, signIn/signUp/signOut
+- ProtectedRoute guards /admin/:restaurantId and redirects to /login
+- New /register page: restaurant name, type, city, email, password → creates auth user + restaurant record with unique slug
+- New /login page: email + password → redirects to /admin/:restaurantId
+- Admin.jsx now reads restaurantId from URL params; all queries (pedidos, platos, realtime subscription) are scoped to that restaurantId; logout button added; header shows restaurant name/type/city
+- Menu.jsx supports both /menu/:restaurantId/:tableId and /r/:restaurantId?mesa=N; fetches restaurant info dynamically from restaurants table; AI assistant prompt is dynamic per restaurant
+- QR codes in Admin now point to /r/:restaurantId?mesa=N format
+- Order.jsx and Gracias.jsx use shared supabase client
+
+https://claude.ai/code/session_01JnUgAVceQqJUaad7xCkM7o
+---
+ src/App.jsx                       |  52 ++++++--
+ src/components/ProtectedRoute.jsx |  26 ++++
+ src/contexts/AuthContext.jsx      |  92 +++++++++++++
+ src/lib/supabase.js               |   6 +
+ src/pages/Admin.jsx               | 122 +++++++++++------
+ src/pages/Gracias.jsx             |  12 +-
+ src/pages/Login.jsx               | 128 ++++++++++++++++++
+ src/pages/Menu.jsx                | 104 ++++++++-------
+ src/pages/Order.jsx               |  25 +---
+ src/pages/Register.jsx            | 213 ++++++++++++++++++++++++++++++
+ 10 files changed, 653 insertions(+), 127 deletions(-)
+ create mode 100644 src/components/ProtectedRoute.jsx
+ create mode 100644 src/contexts/AuthContext.jsx
+ create mode 100644 src/lib/supabase.js
+ create mode 100644 src/pages/Login.jsx
+ create mode 100644 src/pages/Register.jsx
+
+diff --git a/src/App.jsx b/src/App.jsx
+index 9f20c99..20dcbe5 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -1,19 +1,53 @@
+-import { BrowserRouter, Routes, Route } from 'react-router-dom'
++import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
++import { AuthProvider, useAuth } from './contexts/AuthContext'
++import ProtectedRoute from './components/ProtectedRoute'
+ import Menu from './pages/Menu'
+ import Order from './pages/Order'
+ import Admin from './pages/Admin'
+ import Gracias from './pages/Gracias'
++import Login from './pages/Login'
++import Register from './pages/Register'
++
++function AdminRedirect() {
++  const { restaurant, authLoading } = useAuth()
++  if (authLoading) return null
++  if (restaurant) return <Navigate to={`/admin/${restaurant.slug}`} replace />
++  return <Navigate to="/login" replace />
++}
+ 
+ function App() {
+   return (
+-    <BrowserRouter>
+-      <Routes>
+-        <Route path="/menu/:restaurantId/gracias" element={<Gracias />} />
+-        <Route path="/menu/:restaurantId/:tableId" element={<Menu />} />
+-        <Route path="/order/:restaurantId/:tableId" element={<Order />} />
+-        <Route path="/admin" element={<Admin />} />
+-      </Routes>
+-    </BrowserRouter>
++    <AuthProvider>
++      <BrowserRouter>
++        <Routes>
++          {/* Auth */}
++          <Route path="/login" element={<Login />} />
++          <Route path="/register" element={<Register />} />
++
++          {/* Public menu — legacy URL + nuevo /r/:restaurantId */}
++          <Route path="/menu/:restaurantId/gracias" element={<Gracias />} />
++          <Route path="/menu/:restaurantId/:tableId" element={<Menu />} />
++          <Route path="/r/:restaurantId" element={<Menu />} />
++          <Route path="/order/:restaurantId/:tableId" element={<Order />} />
++
++          {/* Admin protegido */}
++          <Route
++            path="/admin/:restaurantId"
++            element={
++              <ProtectedRoute>
++                <Admin />
++              </ProtectedRoute>
++            }
++          />
++
++          {/* /admin sin ID → redirige según sesión */}
++          <Route path="/admin" element={<AdminRedirect />} />
++
++          {/* Raíz */}
++          <Route path="/" element={<Navigate to="/login" replace />} />
++        </Routes>
++      </BrowserRouter>
++    </AuthProvider>
+   )
+ }
+ 
+diff --git a/src/components/ProtectedRoute.jsx b/src/components/ProtectedRoute.jsx
+new file mode 100644
+index 0000000..a868fd2
+--- /dev/null
++++ b/src/components/ProtectedRoute.jsx
+@@ -0,0 +1,26 @@
++import { Navigate } from 'react-router-dom'
++import { useAuth } from '../contexts/AuthContext'
++
++const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
++
++export default function ProtectedRoute({ children }) {
++  const { session, authLoading } = useAuth()
++
++  if (authLoading) {
++    return (
++      <div style={{
++        fontFamily: font,
++        display: 'flex', alignItems: 'center', justifyContent: 'center',
++        minHeight: '100vh', background: '#fff', color: '#aeaeb2', fontSize: 15
++      }}>
++        Cargando…
++      </div>
++    )
++  }
++
++  if (!session) {
++    return <Navigate to="/login" replace />
++  }
++
++  return children
++}
+diff --git a/src/contexts/AuthContext.jsx b/src/contexts/AuthContext.jsx
+new file mode 100644
+index 0000000..852717e
+--- /dev/null
++++ b/src/contexts/AuthContext.jsx
+@@ -0,0 +1,92 @@
++import { createContext, useContext, useEffect, useState } from 'react'
++import { supabase } from '../lib/supabase'
++
++const AuthContext = createContext(null)
++
++export function useAuth() {
++  return useContext(AuthContext)
++}
++
++function generateSlug(nombre) {
++  const base = nombre
++    .toLowerCase()
++    .normalize('NFD')
++    .replace(/[̀-ͯ]/g, '')
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '')
++  const suffix = Math.random().toString(36).slice(2, 7)
++  return `${base}-${suffix}`
++}
++
++export function AuthProvider({ children }) {
++  const [session, setSession] = useState(null)
++  const [restaurant, setRestaurant] = useState(null)
++  const [authLoading, setAuthLoading] = useState(true)
++
++  useEffect(() => {
++    supabase.auth.getSession().then(({ data: { session } }) => {
++      setSession(session)
++      if (session) {
++        fetchRestaurant(session.user.id)
++      } else {
++        setAuthLoading(false)
++      }
++    })
++
++    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
++      setSession(session)
++      if (session) {
++        fetchRestaurant(session.user.id)
++      } else {
++        setRestaurant(null)
++        setAuthLoading(false)
++      }
++    })
++
++    return () => subscription.unsubscribe()
++  }, [])
++
++  async function fetchRestaurant(userId) {
++    const { data } = await supabase
++      .from('restaurants')
++      .select('*')
++      .eq('user_id', userId)
++      .single()
++    setRestaurant(data ?? null)
++    setAuthLoading(false)
++  }
++
++  async function signIn(email, password) {
++    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
++    if (error) throw error
++    return data
++  }
++
++  async function signUp(email, password, restaurantData) {
++    const { data, error } = await supabase.auth.signUp({ email, password })
++    if (error) throw error
++
++    const slug = generateSlug(restaurantData.nombre)
++    const { error: dbError } = await supabase.from('restaurants').insert({
++      user_id: data.user.id,
++      nombre: restaurantData.nombre,
++      tipo: restaurantData.tipo,
++      ciudad: restaurantData.ciudad,
++      email,
++      slug,
++    })
++    if (dbError) throw dbError
++
++    return { user: data.user, slug }
++  }
++
++  async function signOut() {
++    await supabase.auth.signOut()
++  }
++
++  return (
++    <AuthContext.Provider value={{ session, restaurant, authLoading, signIn, signUp, signOut }}>
++      {children}
++    </AuthContext.Provider>
++  )
++}
+diff --git a/src/lib/supabase.js b/src/lib/supabase.js
+new file mode 100644
+index 0000000..a0e2086
+--- /dev/null
++++ b/src/lib/supabase.js
+@@ -0,0 +1,6 @@
++import { createClient } from '@supabase/supabase-js'
++
++export const supabase = createClient(
++  'https://vhaulvmtgomjgfkeqavg.supabase.co',
++  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
++)
+diff --git a/src/pages/Admin.jsx b/src/pages/Admin.jsx
+index 7c63f32..e5414da 100644
+--- a/src/pages/Admin.jsx
++++ b/src/pages/Admin.jsx
+@@ -1,13 +1,8 @@
+ import { useEffect, useState } from 'react'
+-import { createClient } from '@supabase/supabase-js'
++import { useParams, useNavigate } from 'react-router-dom'
+ import { QRCodeCanvas } from 'qrcode.react'
+-
+-const supabase = createClient(
+-  'https://vhaulvmtgomjgfkeqavg.supabase.co',
+-  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
+-)
+-
+-const RESTAURANTE_ID = 'gastro-gaudi'
++import { supabase } from '../lib/supabase'
++import { useAuth } from '../contexts/AuthContext'
+ 
+ const estadoConfig = {
+   nuevo:      { label: 'Nuevo',      dot: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
+@@ -15,7 +10,13 @@ const estadoConfig = {
+   listo:      { label: 'Listo',      dot: '#22c55e', bg: '#f0fdf4', text: '#166534' },
+ }
+ 
++const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
++
+ export default function Admin() {
++  const { restaurantId } = useParams()
++  const navigate = useNavigate()
++  const { restaurant, signOut } = useAuth()
++
+   const [tab, setTab] = useState('pedidos')
+   const [pedidos, setPedidos] = useState([])
+   const [platos, setPlatos] = useState([])
+@@ -29,21 +30,34 @@ export default function Admin() {
+   useEffect(() => {
+     fetchPedidos()
+     fetchPlatos()
+-    const sub = supabase.channel('pedidos')
+-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' }, payload => {
+-        setPedidos(prev => [payload.new, ...prev])
+-      })
++
++    const sub = supabase
++      .channel(`pedidos-${restaurantId}`)
++      .on(
++        'postgres_changes',
++        { event: 'INSERT', schema: 'public', table: 'pedidos', filter: `restaurante_id=eq.${restaurantId}` },
++        payload => { setPedidos(prev => [payload.new, ...prev]) }
++      )
+       .subscribe()
++
+     return () => supabase.removeChannel(sub)
+-  }, [])
++  }, [restaurantId])
+ 
+   async function fetchPedidos() {
+-    const { data } = await supabase.from('pedidos').select('*').eq('restaurante_id', RESTAURANTE_ID).order('created_at', { ascending: false })
++    const { data } = await supabase
++      .from('pedidos')
++      .select('*')
++      .eq('restaurante_id', restaurantId)
++      .order('created_at', { ascending: false })
+     if (data) setPedidos(data)
+   }
+ 
+   async function fetchPlatos() {
+-    const { data } = await supabase.from('platos').select('*').eq('restaurante_id', RESTAURANTE_ID)
++    const { data } = await supabase
++      .from('platos')
++      .select('*')
++      .eq('restaurante_id', restaurantId)
++      .order('nombre')
+     if (data) setPlatos(data)
+   }
+ 
+@@ -62,19 +76,19 @@ export default function Admin() {
+       descripcion: nuevoPlato.descripcion?.trim() ?? '',
+       precio: parseFloat(precio),
+       alergenos: nuevoPlato.alergenos?.trim() ?? '',
+-      restaurante_id: RESTAURANTE_ID,
+-      activo: true
++      restaurante_id: restaurantId,
++      activo: true,
+     }
+     if (nuevoPlato.imagen_url?.trim()) payload.imagen_url = nuevoPlato.imagen_url.trim()
++
+     const { data, error, status } = await supabase.from('platos').insert(payload).select()
+-    console.log('[Admin] insert →', { payload, data, error, status })
+     setGuardando(false)
+     if (error) {
+-      setErrorMsg(`Error Supabase [${status}]: ${error.message}`)
++      setErrorMsg(`Error [${status}]: ${error.message}`)
+       return
+     }
+     if (!data || data.length === 0) {
+-      setErrorMsg(`Sin respuesta del servidor (HTTP ${status}). Revisa los permisos RLS en la tabla "platos".`)
++      setErrorMsg(`Sin respuesta del servidor (HTTP ${status}). Revisa permisos RLS en la tabla "platos".`)
+       return
+     }
+     setOkMsg(`"${nombre}" añadido correctamente.`)
+@@ -83,6 +97,16 @@ export default function Admin() {
+     fetchPlatos()
+   }
+ 
++  async function togglePlato(plato) {
++    await supabase.from('platos').update({ activo: !plato.activo }).eq('id', plato.id)
++    fetchPlatos()
++  }
++
++  async function cambiarEstado(pedido, estado) {
++    await supabase.from('pedidos').update({ estado }).eq('id', pedido.id)
++    fetchPedidos()
++  }
++
+   function descargarQR(mesa) {
+     const canvas = document.getElementById(`qr-canvas-${mesa}`)
+     if (!canvas) return
+@@ -95,28 +119,36 @@ export default function Admin() {
+     document.body.removeChild(a)
+   }
+ 
+-  async function togglePlato(plato) {
+-    await supabase.from('platos').update({ activo: !plato.activo }).eq('id', plato.id)
+-    fetchPlatos()
++  async function handleSignOut() {
++    await signOut()
++    navigate('/login', { replace: true })
+   }
+ 
+-  async function cambiarEstado(pedido, estado) {
+-    await supabase.from('pedidos').update({ estado }).eq('id', pedido.id)
+-    fetchPedidos()
+-  }
+-
+-  const pedidosActivos = pedidos.filter(p => p.estado !== 'listo')
+-  const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
++  const pedidosActivos = pedidos.filter(p => p.estado !== 'listo' && p.estado !== 'pagado')
++  const nombreRestaurante = restaurant?.nombre ?? restaurantId
+ 
+   return (
+     <div style={{ fontFamily: font, maxWidth: 600, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
++
+       {/* Header */}
+       <div style={{ padding: '56px 24px 0', borderBottom: '1px solid #f2f2f7' }}>
+-        <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', marginBottom: 8, fontWeight: 500 }}>
+-          Restaurante
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
++          <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 500 }}>
++            {restaurant?.tipo ? `${restaurant.tipo} · ${restaurant.ciudad}` : 'Restaurante'}
++          </div>
++          <button
++            onClick={handleSignOut}
++            style={{
++              background: 'none', border: '1px solid #e8e8ed', borderRadius: 8,
++              cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#6e6e73',
++              padding: '5px 12px', fontFamily: font
++            }}
++          >
++            Cerrar sesión
++          </button>
+         </div>
+         <div style={{ fontSize: 34, fontWeight: 700, color: '#111', letterSpacing: -1.5, lineHeight: 1, marginBottom: 24 }}>
+-          Admin
++          {nombreRestaurante}
+         </div>
+ 
+         {/* Tabs */}
+@@ -135,13 +167,15 @@ export default function Admin() {
+                 transition: 'color 0.15s'
+               }}
+             >
+-              {t === 'pedidos' ? `Pedidos${pedidosActivos.length ? ` (${pedidosActivos.length})` : ''}` : t === 'carta' ? 'Carta' : 'QR Mesas'}
++              {t === 'pedidos'
++                ? `Pedidos${pedidosActivos.length ? ` (${pedidosActivos.length})` : ''}`
++                : t === 'carta' ? 'Carta' : 'QR Mesas'}
+             </button>
+           ))}
+         </div>
+       </div>
+ 
+-      {/* Pedidos */}
++      {/* ── Pedidos ── */}
+       {tab === 'pedidos' && (
+         <div style={{ padding: '16px 24px' }}>
+           {pedidosActivos.length === 0 && (
+@@ -209,11 +243,15 @@ export default function Admin() {
+         </div>
+       )}
+ 
+-      {/* Carta */}
++      {/* ── Carta ── */}
+       {tab === 'carta' && (
+         <div style={{ padding: '16px 24px' }}>
+-          {/* Lista de platos */}
+           <div style={{ marginBottom: 32 }}>
++            {platos.length === 0 && (
++              <div style={{ textAlign: 'center', padding: '32px 0', color: '#aeaeb2', fontSize: 14 }}>
++                Aún no hay platos en la carta
++              </div>
++            )}
+             {platos.map(plato => (
+               <div key={plato.id} style={{
+                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+@@ -245,7 +283,6 @@ export default function Admin() {
+             ))}
+           </div>
+ 
+-          {/* Añadir plato */}
+           <div style={{ fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 14 }}>
+             Añadir plato
+           </div>
+@@ -290,15 +327,18 @@ export default function Admin() {
+                 marginTop: 4
+               }}
+             >
+-              {guardando ? 'Guardando...' : 'Añadir plato'}
++              {guardando ? 'Guardando…' : 'Añadir plato'}
+             </button>
+           </div>
+         </div>
+       )}
+ 
+-      {/* QR Mesas */}
++      {/* ── QR Mesas ── */}
+       {tab === 'qr' && (
+         <div style={{ padding: '24px' }}>
++          <div style={{ fontSize: 13, color: '#6e6e73', marginBottom: 20, lineHeight: 1.5 }}>
++            Cada QR lleva al cliente directamente a la carta de <strong>{nombreRestaurante}</strong>.
++          </div>
+           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+             <span style={{ fontSize: 14, color: '#6e6e73', fontWeight: 500 }}>Número de mesas</span>
+             <input
+@@ -328,7 +368,7 @@ export default function Admin() {
+                 </div>
+                 <QRCodeCanvas
+                   id={`qr-canvas-${mesa}`}
+-                  value={`https://restaurante-mvp-blue.vercel.app/menu/${RESTAURANTE_ID}/${mesa}`}
++                  value={`https://restaurante-mvp-blue.vercel.app/r/${restaurantId}?mesa=${mesa}`}
+                   size={130}
+                   level="M"
+                   marginSize={2}
+diff --git a/src/pages/Gracias.jsx b/src/pages/Gracias.jsx
+index 80b415a..4546eac 100644
+--- a/src/pages/Gracias.jsx
++++ b/src/pages/Gracias.jsx
+@@ -1,14 +1,10 @@
+ import { useEffect, useState } from 'react'
+-import { useParams, useSearchParams } from 'react-router-dom'
+-import { createClient } from '@supabase/supabase-js'
++import { useSearchParams } from 'react-router-dom'
++import { supabase } from '../lib/supabase'
+ 
+-const supabase = createClient(
+-  'https://vhaulvmtgomjgfkeqavg.supabase.co',
+-  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
+-)
++const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+ 
+ export default function Gracias() {
+-  const { restaurantId } = useParams()
+   const [searchParams] = useSearchParams()
+   const pedidoId = searchParams.get('pedido_id')
+   const [listo, setListo] = useState(false)
+@@ -22,8 +18,6 @@ export default function Gracias() {
+       .then(() => setListo(true))
+   }, [pedidoId])
+ 
+-  const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+-
+   return (
+     <div style={{
+       fontFamily: font,
+diff --git a/src/pages/Login.jsx b/src/pages/Login.jsx
+new file mode 100644
+index 0000000..ebdf84a
+--- /dev/null
++++ b/src/pages/Login.jsx
+@@ -0,0 +1,128 @@
++import { useState, useEffect } from 'react'
++import { useNavigate, Link } from 'react-router-dom'
++import { useAuth } from '../contexts/AuthContext'
++
++const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
++
++export default function Login() {
++  const navigate = useNavigate()
++  const { signIn, session, restaurant, authLoading } = useAuth()
++  const [email, setEmail] = useState('')
++  const [password, setPassword] = useState('')
++  const [error, setError] = useState('')
++  const [loading, setLoading] = useState(false)
++
++  useEffect(() => {
++    if (!authLoading && session && restaurant) {
++      navigate(`/admin/${restaurant.slug}`, { replace: true })
++    }
++  }, [session, restaurant, authLoading, navigate])
++
++  async function handleSubmit(e) {
++    e.preventDefault()
++    setError('')
++    setLoading(true)
++    try {
++      await signIn(email, password)
++      // Navigation happens via the useEffect above once restaurant loads
++    } catch (err) {
++      setError(err.message || 'Email o contraseña incorrectos.')
++      setLoading(false)
++    }
++  }
++
++  if (authLoading) {
++    return (
++      <div style={{ fontFamily: font, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
++        Cargando…
++      </div>
++    )
++  }
++
++  return (
++    <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
++      <div style={{ padding: '72px 32px 40px' }}>
++        <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', marginBottom: 8, fontWeight: 500 }}>
++          Panel de administración
++        </div>
++        <div style={{ fontSize: 34, fontWeight: 700, color: '#111', letterSpacing: -1.5, lineHeight: 1, marginBottom: 40 }}>
++          Iniciar sesión
++        </div>
++
++        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12 }}>
++          <div>
++            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6e6e73', marginBottom: 6, letterSpacing: 0.3 }}>
++              EMAIL
++            </label>
++            <input
++              type="email"
++              value={email}
++              onChange={e => setEmail(e.target.value)}
++              placeholder="hola@mirestaurante.com"
++              required
++              autoComplete="email"
++              style={inputStyle}
++            />
++          </div>
++
++          <div>
++            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6e6e73', marginBottom: 6, letterSpacing: 0.3 }}>
++              CONTRASEÑA
++            </label>
++            <input
++              type="password"
++              value={password}
++              onChange={e => setPassword(e.target.value)}
++              placeholder="••••••••"
++              required
++              autoComplete="current-password"
++              style={inputStyle}
++            />
++          </div>
++
++          {error && (
++            <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 10, padding: '10px 14px' }}>
++              {error}
++            </div>
++          )}
++
++          <button
++            type="submit"
++            disabled={loading}
++            style={{
++              marginTop: 8,
++              padding: '15px 20px',
++              background: loading ? '#6e6e73' : '#111',
++              color: '#fff', border: 'none', borderRadius: 14,
++              cursor: loading ? 'default' : 'pointer',
++              fontSize: 15, fontWeight: 600, fontFamily: font,
++              transition: 'background 0.15s'
++            }}
++          >
++            {loading ? 'Entrando…' : 'Entrar'}
++          </button>
++        </form>
++
++        <div style={{ marginTop: 28, textAlign: 'center', fontSize: 14, color: '#6e6e73' }}>
++          ¿Aún no tienes cuenta?{' '}
++          <Link to="/register" style={{ color: '#111', fontWeight: 600, textDecoration: 'none' }}>
++            Registra tu restaurante
++          </Link>
++        </div>
++      </div>
++    </div>
++  )
++}
++
++const inputStyle = {
++  width: '100%',
++  padding: '13px 16px',
++  borderRadius: 12,
++  border: 'none',
++  background: '#f5f5f7',
++  fontSize: 15,
++  outline: 'none',
++  color: '#111',
++  fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
++  boxSizing: 'border-box',
++}
+diff --git a/src/pages/Menu.jsx b/src/pages/Menu.jsx
+index 5e02d9e..a2b3cb5 100644
+--- a/src/pages/Menu.jsx
++++ b/src/pages/Menu.jsx
+@@ -1,24 +1,24 @@
+ import { useEffect, useState, useRef } from 'react'
+-import { useParams, useNavigate } from 'react-router-dom'
+-import { createClient } from '@supabase/supabase-js'
++import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
++import { supabase } from '../lib/supabase'
+ 
+-const supabase = createClient(
+-  'https://vhaulvmtgomjgfkeqavg.supabase.co',
+-  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw',
+-  { global: { fetch: (url, opts = {}) => fetch(url, { ...opts, cache: 'no-store' }) } }
+-)
+-
+-const GOLD   = '#c9a465'
+-const BG     = '#0f0f0f'
+-const SURF   = '#1a1a1a'
+-const TEXT   = '#f0ebe0'
+-const MUTED  = '#7a6a54'
+-const SEP    = 'rgba(201,164,101,0.12)'
+-const font   = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
++const GOLD  = '#c9a465'
++const BG    = '#0f0f0f'
++const SURF  = '#1a1a1a'
++const TEXT  = '#f0ebe0'
++const MUTED = '#7a6a54'
++const SEP   = 'rgba(201,164,101,0.12)'
++const font  = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+ 
+ export default function Menu() {
+-  const { restaurantId, tableId } = useParams()
++  const { restaurantId, tableId: tableIdParam } = useParams()
++  const [searchParams] = useSearchParams()
+   const navigate = useNavigate()
++
++  // Soporta /menu/:restaurantId/:tableId y /r/:restaurantId?mesa=N
++  const tableId = tableIdParam ?? searchParams.get('mesa') ?? null
++
++  const [restaurantInfo, setRestaurantInfo] = useState(null)
+   const [platos, setPlatos] = useState([])
+   const [carrito, setCarrito] = useState([])
+   const [chatInput, setChatInput] = useState('')
+@@ -30,19 +30,34 @@ export default function Menu() {
+   const [fetchError, setFetchError] = useState('')
+   const chatRef = useRef(null)
+ 
+-  useEffect(() => { fetchPlatos() }, [])
++  useEffect(() => {
++    fetchRestaurantInfo()
++    fetchPlatos()
++  }, [restaurantId])
++
+   useEffect(() => {
+     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+   }, [chatMessages])
+ 
++  async function fetchRestaurantInfo() {
++    const { data } = await supabase
++      .from('restaurants')
++      .select('nombre, tipo, ciudad')
++      .eq('slug', restaurantId)
++      .single()
++    if (data) setRestaurantInfo(data)
++  }
++
+   async function fetchPlatos() {
+-    const { data, error } = await supabase.from('platos').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
++    const { data, error } = await supabase
++      .from('platos')
++      .select('*')
++      .eq('restaurante_id', restaurantId)
++      .eq('activo', true)
+     if (error) {
+-      console.error('[menu] fetchPlatos error:', error)
+       setFetchError(error.message)
+       return
+     }
+-    console.log(`[menu] fetchPlatos: ${data?.length ?? 0} platos para restaurante_id="${restaurantId}"`)
+     if (data) setPlatos(data)
+   }
+ 
+@@ -72,12 +87,15 @@ export default function Menu() {
+       const menuTexto = platos.map(p =>
+         `${p.nombre}: ${p.descripcion}. Precio: ${p.precio}€. Alérgenos: ${p.alergenos || 'ninguno'}`
+       ).join('\n')
++      const nombre = restaurantInfo?.nombre ?? 'este restaurante'
++      const tipo   = restaurantInfo?.tipo   ?? 'restaurante'
++      const ciudad = restaurantInfo?.ciudad ?? ''
+       const response = await fetch('/api/chat', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+           messages: [...chatMessages, userMsg],
+-          system: `Eres el asistente del Gastro Gaudí, un gastrobar moderno en Mataró. Conoces el menú al detalle. Sé amable, conciso y con personalidad. El menú es:\n${menuTexto}`
++          system: `Eres el asistente de ${nombre}, un ${tipo}${ciudad ? ` en ${ciudad}` : ''}. Conoces el menú al detalle. Sé amable, conciso y con personalidad. El menú es:\n${menuTexto}`
+         })
+       })
+       const json = await response.json()
+@@ -91,6 +109,9 @@ export default function Menu() {
+   const total      = carrito.reduce((sum, p) => sum + p.precio * p.cantidad, 0)
+   const totalItems = carrito.reduce((sum, p) => sum + p.cantidad, 0)
+ 
++  const heroNombre = restaurantInfo?.nombre ?? ''
++  const heroSub    = restaurantInfo ? `${restaurantInfo.tipo} · ${restaurantInfo.ciudad}` : ''
++
+   return (
+     <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: BG, minHeight: '100vh' }}>
+ 
+@@ -98,31 +119,27 @@ export default function Menu() {
+       <div style={{ position: 'relative', height: 230, overflow: 'hidden' }}>
+         <img
+           src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80"
+-          alt="Gastro Gaudí terraza"
++          alt={heroNombre || 'Restaurante'}
+           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+         />
+-        {/* gradiente oscuro */}
+         <div style={{
+           position: 'absolute', inset: 0,
+           background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.82) 100%)'
+         }} />
+-        {/* texto sobre imagen */}
+         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 22px' }}>
+-          <div style={{
+-            fontSize: 10, letterSpacing: 4, color: GOLD,
+-            textTransform: 'uppercase', fontWeight: 600, marginBottom: 6
+-          }}>
+-            Mesa {tableId}
+-          </div>
++          {tableId && (
++            <div style={{ fontSize: 10, letterSpacing: 4, color: GOLD, textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
++              Mesa {tableId}
++            </div>
++          )}
+           <div style={{ fontSize: 28, fontWeight: 700, color: TEXT, letterSpacing: -0.5, lineHeight: 1.1 }}>
+-            Gastro Gaudí
+-          </div>
+-          <div style={{
+-            fontSize: 11, color: 'rgba(240,235,224,0.45)',
+-            marginTop: 5, letterSpacing: 2, textTransform: 'uppercase'
+-          }}>
+-            Gastrobar · Mataró
++            {heroNombre || <span style={{ opacity: 0 }}>–</span>}
+           </div>
++          {heroSub && (
++            <div style={{ fontSize: 11, color: 'rgba(240,235,224,0.45)', marginTop: 5, letterSpacing: 2, textTransform: 'uppercase' }}>
++              {heroSub}
++            </div>
++          )}
+         </div>
+       </div>
+ 
+@@ -151,10 +168,7 @@ export default function Menu() {
+                   <img
+                     src={plato.imagen_url}
+                     alt={plato.nombre}
+-                    style={{
+-                      width: 68, height: 68, borderRadius: 10,
+-                      objectFit: 'cover', flexShrink: 0, background: SURF
+-                    }}
++                    style={{ width: 68, height: 68, borderRadius: 10, objectFit: 'cover', flexShrink: 0, background: SURF }}
+                   />
+                 )}
+                 <div style={{ flex: 1, minWidth: 0 }}>
+@@ -213,7 +227,7 @@ export default function Menu() {
+       </div>
+ 
+       {/* ── Botón ver pedido ── */}
+-      {carrito.length > 0 && (
++      {carrito.length > 0 && tableId && (
+         <div style={{
+           position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+           width: 'calc(100% - 32px)', maxWidth: 448, zIndex: 20
+@@ -276,8 +290,7 @@ export default function Menu() {
+                 style={{
+                   flex: 1, padding: '10px 14px', borderRadius: 12,
+                   border: `1px solid ${SEP}`, fontSize: 13, outline: 'none',
+-                  background: '#252525', color: TEXT,
+-                  fontFamily: font
++                  background: '#252525', color: TEXT, fontFamily: font
+                 }}
+               />
+               <button
+@@ -295,8 +308,7 @@ export default function Menu() {
+           onClick={() => setChatAbierto(!chatAbierto)}
+           style={{
+             width: '100%', padding: 14,
+-            background: SURF,
+-            color: GOLD,
++            background: SURF, color: GOLD,
+             border: `1px solid rgba(201,164,101,0.22)`,
+             borderRadius: 14, cursor: 'pointer',
+             fontSize: 13, fontWeight: 500, letterSpacing: 0.3,
+diff --git a/src/pages/Order.jsx b/src/pages/Order.jsx
+index f76004d..6e678bd 100644
+--- a/src/pages/Order.jsx
++++ b/src/pages/Order.jsx
+@@ -1,16 +1,10 @@
+ import { useLocation, useParams, useNavigate } from 'react-router-dom'
+-import { createClient } from '@supabase/supabase-js'
+ import { useState } from 'react'
+ import { loadStripe } from '@stripe/stripe-js'
++import { supabase } from '../lib/supabase'
+ 
+-const supabase = createClient(
+-  'https://vhaulvmtgomjgfkeqavg.supabase.co',
+-  'sb_publishable_bFCrDNP_8oFJIC9mttAfxA_J34xZVXw'
+-)
+-
+-// Inicializar Stripe al cargar el módulo mejora el rendimiento y
+-// habilita la verificación de dominio para Apple Pay
+ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
++const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+ 
+ export default function Order() {
+   const { restaurantId, tableId } = useParams()
+@@ -26,7 +20,6 @@ export default function Order() {
+     setLoading(true)
+     setError('')
+ 
+-    // 1. Guardar pedido en Supabase con estado pendiente_pago
+     const { data: pedido, error: dbError } = await supabase
+       .from('pedidos')
+       .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
+@@ -39,7 +32,6 @@ export default function Order() {
+       return
+     }
+ 
+-    // 2. Crear sesión de Stripe Checkout
+     const res = await fetch('/api/create-checkout-session', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+@@ -47,7 +39,6 @@ export default function Order() {
+     })
+     const json = await res.json()
+     const { url, error: stripeError } = json
+-    console.log('[order] checkout response:', { status: res.status, url: !!url, error: stripeError })
+ 
+     if (stripeError || !url) {
+       setError(stripeError || 'No se recibió URL de pago. Inténtalo de nuevo.')
+@@ -55,7 +46,6 @@ export default function Order() {
+       return
+     }
+ 
+-    // 3. Redirigir a Stripe Checkout (soporta Apple Pay, Google Pay y tarjeta)
+     const stripe = await stripePromise
+     if (!stripe) {
+       setError('No se pudo cargar el sistema de pago. Recarga la página.')
+@@ -65,11 +55,8 @@ export default function Order() {
+     window.location.href = url
+   }
+ 
+-  const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+-
+   return (
+     <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
+-      {/* Header */}
+       <div style={{ padding: '56px 24px 24px', borderBottom: '1px solid #f2f2f7' }}>
+         <button
+           onClick={() => navigate(-1)}
+@@ -90,7 +77,6 @@ export default function Order() {
+         </div>
+       </div>
+ 
+-      {/* Items */}
+       <div style={{ padding: '8px 24px 0' }}>
+         {carrito.map(p => (
+           <div key={p.id} style={{
+@@ -111,11 +97,7 @@ export default function Order() {
+           </div>
+         ))}
+ 
+-        {/* Total */}
+-        <div style={{
+-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+-          padding: '20px 0 32px'
+-        }}>
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 32px' }}>
+           <span style={{ fontSize: 17, fontWeight: 600, color: '#111' }}>Total</span>
+           <span style={{ fontSize: 22, fontWeight: 700, color: '#111', letterSpacing: -0.5 }}>
+             {total.toFixed(2)}€
+@@ -128,7 +110,6 @@ export default function Order() {
+           </div>
+         )}
+ 
+-        {/* Botón pagar */}
+         <button
+           onClick={confirmarPedido}
+           disabled={loading}
+diff --git a/src/pages/Register.jsx b/src/pages/Register.jsx
+new file mode 100644
+index 0000000..98537ac
+--- /dev/null
++++ b/src/pages/Register.jsx
+@@ -0,0 +1,213 @@
++import { useState } from 'react'
++import { useNavigate, Link } from 'react-router-dom'
++import { useAuth } from '../contexts/AuthContext'
++
++const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
++
++const TIPOS = [
++  'Restaurante',
++  'Gastrobar',
++  'Cafetería',
++  'Pizzería',
++  'Hamburguesería',
++  'Sushi / Japonés',
++  'Mexicano',
++  'Italiano',
++  'Mediterráneo',
++  'Otro',
++]
++
++export default function Register() {
++  const navigate = useNavigate()
++  const { signUp } = useAuth()
++  const [form, setForm] = useState({
++    nombre: '',
++    tipo: '',
++    ciudad: '',
++    email: '',
++    password: '',
++    confirmPassword: '',
++  })
++  const [error, setError] = useState('')
++  const [loading, setLoading] = useState(false)
++
++  function setField(field, value) {
++    setForm(prev => ({ ...prev, [field]: value }))
++  }
++
++  async function handleSubmit(e) {
++    e.preventDefault()
++    setError('')
++
++    if (!form.nombre.trim() || !form.tipo || !form.ciudad.trim() || !form.email.trim() || !form.password) {
++      setError('Rellena todos los campos.')
++      return
++    }
++    if (form.password.length < 6) {
++      setError('La contraseña debe tener al menos 6 caracteres.')
++      return
++    }
++    if (form.password !== form.confirmPassword) {
++      setError('Las contraseñas no coinciden.')
++      return
++    }
++
++    setLoading(true)
++    try {
++      const { slug } = await signUp(form.email, form.password, {
++        nombre: form.nombre.trim(),
++        tipo: form.tipo,
++        ciudad: form.ciudad.trim(),
++      })
++      navigate(`/admin/${slug}`, { replace: true })
++    } catch (err) {
++      setError(err.message || 'Error al crear la cuenta.')
++      setLoading(false)
++    }
++  }
++
++  return (
++    <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
++      <div style={{ padding: '72px 32px 56px' }}>
++        <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', marginBottom: 8, fontWeight: 500 }}>
++          Nuevo restaurante
++        </div>
++        <div style={{ fontSize: 34, fontWeight: 700, color: '#111', letterSpacing: -1.5, lineHeight: 1, marginBottom: 10 }}>
++          Crea tu cuenta
++        </div>
++        <div style={{ fontSize: 14, color: '#6e6e73', marginBottom: 36, lineHeight: 1.5 }}>
++          Configura tu restaurante en menos de un minuto.
++        </div>
++
++        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 14 }}>
++          <Field label="NOMBRE DEL RESTAURANTE">
++            <input
++              type="text"
++              value={form.nombre}
++              onChange={e => setField('nombre', e.target.value)}
++              placeholder="Ej: El Rincón de María"
++              required
++              style={inputStyle}
++            />
++          </Field>
++
++          <Field label="TIPO DE LOCAL">
++            <select
++              value={form.tipo}
++              onChange={e => setField('tipo', e.target.value)}
++              required
++              style={{ ...inputStyle, color: form.tipo ? '#111' : '#aeaeb2', appearance: 'none' }}
++            >
++              <option value="" disabled>Selecciona un tipo…</option>
++              {TIPOS.map(t => (
++                <option key={t} value={t}>{t}</option>
++              ))}
++            </select>
++          </Field>
++
++          <Field label="CIUDAD">
++            <input
++              type="text"
++              value={form.ciudad}
++              onChange={e => setField('ciudad', e.target.value)}
++              placeholder="Ej: Barcelona"
++              required
++              style={inputStyle}
++            />
++          </Field>
++
++          <div style={{ height: 1, background: '#f2f2f7', margin: '4px 0' }} />
++
++          <Field label="EMAIL DEL PROPIETARIO">
++            <input
++              type="email"
++              value={form.email}
++              onChange={e => setField('email', e.target.value)}
++              placeholder="hola@mirestaurante.com"
++              required
++              autoComplete="email"
++              style={inputStyle}
++            />
++          </Field>
++
++          <Field label="CONTRASEÑA">
++            <input
++              type="password"
++              value={form.password}
++              onChange={e => setField('password', e.target.value)}
++              placeholder="Mínimo 6 caracteres"
++              required
++              autoComplete="new-password"
++              style={inputStyle}
++            />
++          </Field>
++
++          <Field label="CONFIRMAR CONTRASEÑA">
++            <input
++              type="password"
++              value={form.confirmPassword}
++              onChange={e => setField('confirmPassword', e.target.value)}
++              placeholder="Repite la contraseña"
++              required
++              autoComplete="new-password"
++              style={inputStyle}
++            />
++          </Field>
++
++          {error && (
++            <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 10, padding: '10px 14px' }}>
++              {error}
++            </div>
++          )}
++
++          <button
++            type="submit"
++            disabled={loading}
++            style={{
++              marginTop: 8,
++              padding: '15px 20px',
++              background: loading ? '#6e6e73' : '#111',
++              color: '#fff', border: 'none', borderRadius: 14,
++              cursor: loading ? 'default' : 'pointer',
++              fontSize: 15, fontWeight: 600, fontFamily: font,
++              transition: 'background 0.15s'
++            }}
++          >
++            {loading ? 'Creando cuenta…' : 'Crear restaurante'}
++          </button>
++        </form>
++
++        <div style={{ marginTop: 28, textAlign: 'center', fontSize: 14, color: '#6e6e73' }}>
++          ¿Ya tienes cuenta?{' '}
++          <Link to="/login" style={{ color: '#111', fontWeight: 600, textDecoration: 'none' }}>
++            Inicia sesión
++          </Link>
++        </div>
++      </div>
++    </div>
++  )
++}
++
++function Field({ label, children }) {
++  return (
++    <div>
++      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6e6e73', marginBottom: 6, letterSpacing: 0.3 }}>
++        {label}
++      </label>
++      {children}
++    </div>
++  )
++}
++
++const inputStyle = {
++  width: '100%',
++  padding: '13px 16px',
++  borderRadius: 12,
++  border: 'none',
++  background: '#f5f5f7',
++  fontSize: 15,
++  outline: 'none',
++  color: '#111',
++  fontFamily: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
++  boxSizing: 'border-box',
++}
+-- 
+2.43.0
+
+
+From 9979817ff13df5ca8417be9058bc86eec5abe240 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 18 May 2026 09:36:26 +0000
+Subject: [PATCH 2/2] chore: update package-lock.json after npm install
+
+https://claude.ai/code/session_01JnUgAVceQqJUaad7xCkM7o
+---
+ package-lock.json | 30 ------------------------------
+ 1 file changed, 30 deletions(-)
+
+diff --git a/package-lock.json b/package-lock.json
+index ce393e2..31d9e45 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -668,9 +668,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -688,9 +685,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -708,9 +702,6 @@
+         "ppc64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -728,9 +719,6 @@
+         "s390x"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -748,9 +736,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -768,9 +753,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1886,9 +1868,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1910,9 +1889,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1934,9 +1910,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1958,9 +1931,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+-- 
+2.43.0
+
