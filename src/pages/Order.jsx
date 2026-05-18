@@ -13,16 +13,15 @@ export default function Order() {
   const carrito = state?.carrito || []
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [emailCliente, setEmailCliente] = useState('')
   const [prAvailable, setPrAvailable] = useState(false)
 
-  // DOM div where Stripe mounts the Apple Pay / Google Pay button
   const prDivRef = useRef(null)
-  // Stripe Elements button instance — kept in ref to destroy on unmount
   const prBtnElRef = useRef(null)
 
   const total = carrito.reduce((sum, p) => sum + p.precio * p.cantidad, 0)
 
-  // ── Effect 1: detect Apple Pay / Google Pay and wire up the payment handler ──
+  // ── Detectar Apple Pay / Google Pay ──────────────────────────────────────
   useEffect(() => {
     if (!carrito.length) return
     let cancelled = false
@@ -53,7 +52,6 @@ export default function Order() {
         setLoading(true)
         setError('')
 
-        // 1. Guardar el pedido en Supabase
         const { data: pedido, error: dbErr } = await supabase
           .from('pedidos')
           .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
@@ -67,13 +65,12 @@ export default function Order() {
           return
         }
 
-        // 2. Crear PaymentIntent en el servidor
-        const res = await fetch('/api/create-payment-intent', {
+        const piRes = await fetch('/api/create-payment-intent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ amount: total, pedidoId: pedido.id }),
         })
-        const { clientSecret, error: piErr } = await res.json()
+        const { clientSecret, error: piErr } = await piRes.json()
 
         if (piErr || !clientSecret) {
           ev.complete('fail')
@@ -82,7 +79,6 @@ export default function Order() {
           return
         }
 
-        // 3. Confirmar con el payment method de Apple/Google Pay
         const { paymentIntent, error: confirmErr } = await stripe.confirmCardPayment(
           clientSecret,
           { payment_method: ev.paymentMethod.id },
@@ -98,18 +94,28 @@ export default function Order() {
 
         ev.complete('success')
 
-        // Manejar 3DS si fuera necesario (infrecuente en Apple/Google Pay)
         if (paymentIntent.status === 'requires_action') {
           const { error: actionErr } = await stripe.confirmCardPayment(clientSecret)
-          if (actionErr) {
-            setError(actionErr.message)
-            setLoading(false)
-            return
-          }
+          if (actionErr) { setError(actionErr.message); setLoading(false); return }
         }
 
-        // 4. Marcar como pagado y redirigir
         await supabase.from('pedidos').update({ estado: 'pagado' }).eq('id', pedido.id)
+
+        // Ticket por email (fire and forget)
+        if (emailCliente) {
+          fetch('/api/send-receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: emailCliente,
+              restaurantId,
+              mesa: tableId,
+              items: carrito,
+              total,
+            }),
+          }).catch(() => {})
+        }
+
         navigate(`/menu/${restaurantId}/gracias?pedido_id=${pedido.id}`)
       })
 
@@ -118,16 +124,16 @@ export default function Order() {
 
     init()
     return () => { cancelled = true }
-  }, []) // carrito/total/restaurantId/tableId son estables tras el montaje inicial
+  }, []) // carrito/total/restaurantId/tableId/emailCliente son estables tras el montaje
 
-  // ── Effect 2: montar el botón una vez que su div está en el DOM ──
+  // Montar el botón cuando su div ya está en el DOM
   useEffect(() => {
     if (!prAvailable || !prDivRef.current || !prBtnElRef.current) return
     prBtnElRef.current.mount(prDivRef.current)
     return () => prBtnElRef.current?.destroy()
   }, [prAvailable])
 
-  // ── Flujo original: Stripe Checkout Session (tarjeta / Bizum / etc.) ──
+  // ── Flujo Stripe Checkout (tarjeta / fallback) ────────────────────────────
   async function confirmarPedido() {
     setLoading(true)
     setError('')
@@ -147,7 +153,7 @@ export default function Order() {
     const res = await fetch('/api/create-checkout-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: carrito, pedidoId: pedido.id, restaurantId, tableId }),
+      body: JSON.stringify({ items: carrito, pedidoId: pedido.id, restaurantId, tableId, emailCliente }),
     })
     const json = await res.json()
     const { url, error: stripeError } = json
@@ -186,9 +192,23 @@ export default function Order() {
           </div>
         ))}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 32px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 24px' }}>
           <span style={{ fontSize: 17, fontWeight: 600, color: '#111' }}>Total</span>
           <span style={{ fontSize: 22, fontWeight: 700, color: '#111', letterSpacing: -0.5 }}>{total.toFixed(2)}€</span>
+        </div>
+
+        {/* Email opcional para recibir el ticket */}
+        <div style={{ marginBottom: 24 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aeaeb2', marginBottom: 6, letterSpacing: 0.3 }}>
+            RECIBIR TICKET POR EMAIL <span style={{ fontWeight: 400 }}>(opcional)</span>
+          </label>
+          <input
+            type="email"
+            value={emailCliente}
+            onChange={e => setEmailCliente(e.target.value)}
+            placeholder="tu@email.com"
+            style={{ width: '100%', padding: '13px 16px', borderRadius: 12, border: 'none', background: '#f5f5f7', fontSize: 15, outline: 'none', color: '#111', fontFamily: font, boxSizing: 'border-box' }}
+          />
         </div>
 
         {error && (
@@ -197,7 +217,7 @@ export default function Order() {
           </div>
         )}
 
-        {/* Apple Pay / Google Pay — solo aparece si el dispositivo lo soporta */}
+        {/* Apple Pay / Google Pay — solo si el dispositivo lo soporta */}
         {prAvailable && (
           <div style={{ marginBottom: 16 }}>
             <div ref={prDivRef} />

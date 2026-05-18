@@ -5,7 +5,7 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
-    const { items, pedidoId, restaurantId, tableId } = body ?? {}
+    const { items, pedidoId, restaurantId, tableId, emailCliente } = body ?? {}
 
     console.log('[checkout] body received:', JSON.stringify({ pedidoId, restaurantId, tableId, itemsCount: items?.length }))
 
@@ -31,7 +31,7 @@ export default async function handler(req, res) {
         },
         quantity: item.cantidad,
       })),
-      success_url: `${process.env.VITE_APP_URL}/menu/${restaurantId}/gracias?pedido_id=${pedidoId}`,
+      success_url: `${process.env.VITE_APP_URL}/menu/${restaurantId}/gracias?pedido_id=${pedidoId}${emailCliente ? `&email=${encodeURIComponent(emailCliente)}` : ''}`,
       cancel_url: `${process.env.VITE_APP_URL}/order/${restaurantId}/${tableId}`,
       metadata: { pedidoId },
     })

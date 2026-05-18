@@ -15,7 +15,7 @@ const font = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-s
 export default function Admin() {
   const { restaurantId } = useParams()
   const navigate = useNavigate()
-  const { restaurant, signOut } = useAuth()
+  const { signOut } = useAuth()
 
   const [tab, setTab] = useState('pedidos')
   const [pedidos, setPedidos] = useState([])
@@ -26,8 +26,10 @@ export default function Admin() {
   const [okMsg, setOkMsg] = useState('')
   const [formKey, setFormKey] = useState(0)
   const [numMesas, setNumMesas] = useState(10)
+  const [restaurantInfo, setRestaurantInfo] = useState(null)
 
   useEffect(() => {
+    fetchRestaurantInfo()
     fetchPedidos()
     fetchPlatos()
 
@@ -42,6 +44,15 @@ export default function Admin() {
 
     return () => supabase.removeChannel(sub)
   }, [restaurantId])
+
+  async function fetchRestaurantInfo() {
+    const { data } = await supabase
+      .from('restaurants')
+      .select('nombre, tipo, ciudad')
+      .eq('slug', restaurantId)
+      .single()
+    if (data) setRestaurantInfo(data)
+  }
 
   async function fetchPedidos() {
     const { data } = await supabase
@@ -125,7 +136,7 @@ export default function Admin() {
   }
 
   const pedidosActivos = pedidos.filter(p => p.estado !== 'listo' && p.estado !== 'pagado')
-  const nombreRestaurante = restaurant?.nombre ?? restaurantId
+  const nombreRestaurante = restaurantInfo?.nombre ?? restaurantId
 
   return (
     <div style={{ fontFamily: font, maxWidth: 600, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
@@ -133,7 +144,7 @@ export default function Admin() {
       <div style={{ padding: '56px 24px 0', borderBottom: '1px solid #f2f2f7' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
           <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 500 }}>
-            {restaurant?.tipo ? `${restaurant.tipo} · ${restaurant.ciudad}` : 'Restaurante'}
+            {restaurantInfo?.tipo ? `${restaurantInfo.tipo} · ${restaurantInfo.ciudad}` : 'Restaurante'}
           </div>
           <button
             onClick={handleSignOut}
