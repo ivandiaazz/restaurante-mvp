@@ -90,21 +90,33 @@ export default function Admin() {
     fetchPlatos()
     registrarPush()
 
-    const sub = supabase
-      .channel(`pedidos-${restaurantId}`)
+    // Server-side filter requires RLS + policies to work — unreliable.
+    // Filter client-side instead so the channel always connects.
+    const channel = supabase
+      .channel(`admin-pedidos-${restaurantId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'pedidos', filter: `restaurante_id=eq.${restaurantId}` },
-        payload => { setPedidos(prev => [payload.new, ...prev]) }
+        { event: 'INSERT', schema: 'public', table: 'pedidos' },
+        payload => {
+          if (payload.new?.restaurante_id !== restaurantId) return
+          console.log('[realtime] INSERT pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
+          setPedidos(prev => [payload.new, ...prev])
+        }
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'pedidos', filter: `restaurante_id=eq.${restaurantId}` },
-        payload => { setPedidos(prev => prev.map(p => p.id === payload.new.id ? payload.new : p)) }
+        { event: 'UPDATE', schema: 'public', table: 'pedidos' },
+        payload => {
+          if (payload.new?.restaurante_id !== restaurantId) return
+          console.log('[realtime] UPDATE pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
+          setPedidos(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
+        }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        console.log('[realtime] channel status:', status, err ? err.message : '')
+      })
 
-    return () => supabase.removeChannel(sub)
+    return () => { supabase.removeChannel(channel) }
   }, [restaurantId])
 
   async function fetchRestaurantInfo() {
