@@ -38,27 +38,46 @@ export default function Admin() {
 
   async function registrarPush() {
     if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.warn('[push] Web Push no soportado en este navegador')
       setPushStatus('unsupported')
       return
     }
     try {
+      const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+      console.log('[push] VITE_VAPID_PUBLIC_KEY definida:', !!vapidKey, vapidKey ? `(${vapidKey.slice(0, 20)}…)` : '(FALTA)')
+
       const permission = await Notification.requestPermission()
+      console.log('[push] permiso de notificaciones:', permission)
       if (permission !== 'granted') { setPushStatus('denied'); return }
 
       const registration = await navigator.serviceWorker.ready
+      console.log('[push] Service Worker listo, scope:', registration.scope)
+
       const existing = await registration.pushManager.getSubscription()
+      console.log('[push] suscripción existente:', existing ? `…${existing.endpoint.slice(-40)}` : 'ninguna')
+
       const pushSub = existing ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY),
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
       })
+      console.log('[push] endpoint activo:', `…${pushSub.endpoint.slice(-40)}`)
 
-      await supabase.from('push_subscriptions').upsert(
-        { restaurante_id: restaurantId, endpoint: pushSub.endpoint, subscription: pushSub.toJSON() },
-        { onConflict: 'restaurante_id,endpoint' }
-      )
-      setPushStatus('granted')
+      const { error: upsertErr } = await supabase
+        .from('push_subscriptions')
+        .upsert(
+          { restaurante_id: restaurantId, endpoint: pushSub.endpoint, subscription: pushSub.toJSON() },
+          { onConflict: 'restaurante_id,endpoint' }
+        )
+
+      if (upsertErr) {
+        console.error('[push] error guardando suscripción en Supabase:', upsertErr.code, upsertErr.message)
+        setPushStatus('denied')
+      } else {
+        console.log('[push] suscripción guardada en Supabase ✓')
+        setPushStatus('granted')
+      }
     } catch (err) {
-      console.error('[push] error:', err)
+      console.error('[push] error inesperado:', err.message, err)
       setPushStatus('denied')
     }
   }

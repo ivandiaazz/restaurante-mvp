@@ -70,12 +70,14 @@ export default function Order() {
           return
         }
 
-        // Notify admin (fire and forget)
+        // Notify admin
         fetch('/api/send-push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ restauranteId: restaurantId, mesa: tableId, items: carrito, total }),
-        }).catch(() => {})
+        })
+          .then(r => r.json().then(j => console.log('[send-push] respuesta:', r.status, j)))
+          .catch(err => console.error('[send-push] fetch error:', err))
 
         const piRes = await fetch('/api/create-payment-intent', {
           method: 'POST',
