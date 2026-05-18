@@ -11,6 +11,10 @@ export default function Order() {
   const navigate = useNavigate()
   const { state } = useLocation()
   const carrito = state?.carrito || []
+
+  // Diagnóstico — visible en DevTools Console
+  console.log('[Order] URL params → restaurantId:', restaurantId, '| tableId:', tableId)
+  console.log('[Order] carrito restaurante_ids:', [...new Set(carrito.map(p => p.restaurante_id))])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailCliente, setEmailCliente] = useState('')
@@ -57,6 +61,7 @@ export default function Order() {
         setLoading(true)
         setError('')
 
+        console.log('[Order/PR] INSERT pedido restaurante_id:', restaurantId, 'mesa:', tableId)
         const { data: pedido, error: dbErr } = await supabase
           .from('pedidos')
           .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
@@ -156,6 +161,7 @@ export default function Order() {
     setLoading(true)
     setError('')
 
+    console.log('[Order/checkout] INSERT pedido restaurante_id:', restaurantId, 'mesa:', tableId)
     const { data: pedido, error: dbError } = await supabase
       .from('pedidos')
       .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
