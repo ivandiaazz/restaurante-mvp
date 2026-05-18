@@ -49,6 +49,11 @@ export default function Order() {
       prBtnElRef.current = btn
 
       pr.on('paymentmethod', async (ev) => {
+        if (!navigator.onLine) {
+          ev.complete('fail')
+          setError('Sin conexión. Por favor avisa al camarero.')
+          return
+        }
         setLoading(true)
         setError('')
 
@@ -135,6 +140,10 @@ export default function Order() {
 
   // ── Flujo Stripe Checkout (tarjeta / fallback) ────────────────────────────
   async function confirmarPedido() {
+    if (!navigator.onLine) {
+      setError('Sin conexión. Por favor avisa al camarero.')
+      return
+    }
     setLoading(true)
     setError('')
 

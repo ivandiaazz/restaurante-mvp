@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import CookieBanner from '../components/CookieBanner'
 
 const GOLD  = '#c9a465'
 const BG    = '#0f0f0f'
@@ -9,6 +10,8 @@ const TEXT  = '#f0ebe0'
 const MUTED = '#7a6a54'
 const SEP   = 'rgba(201,164,101,0.12)'
 const font  = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
+
+function cacheKey(id) { return `mqr_${id}` }
 
 export default function Menu() {
   const { restaurantId, tableId: tableIdParam } = useParams()
@@ -27,7 +30,20 @@ export default function Menu() {
   const [chatAbierto, setChatAbierto] = useState(false)
   const [fetchError, setFetchError] = useState('')
   const [cargando, setCargando] = useState(true)
+  const [esOffline, setEsOffline] = useState(!navigator.onLine)
   const chatRef = useRef(null)
+
+  // Online / offline listeners
+  useEffect(() => {
+    function goOnline()  { setEsOffline(false) }
+    function goOffline() { setEsOffline(true) }
+    window.addEventListener('online',  goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online',  goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
 
   useEffect(() => { setCargando(true); setFetchError(''); fetchRestaurantInfo(); fetchPlatos() }, [restaurantId])
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [chatMessages])
@@ -35,17 +51,37 @@ export default function Menu() {
   async function fetchRestaurantInfo() {
     try {
       const { data } = await supabase.from('restaurants').select('nombre, tipo, ciudad').eq('slug', restaurantId).single()
-      if (data) setRestaurantInfo(data)
+      if (data) {
+        setRestaurantInfo(data)
+        // Persist info alongside platos in cache (updated below in fetchPlatos)
+      }
     } catch { /* no bloquea el resto */ }
   }
 
   async function fetchPlatos() {
+    // Try to load cached data first for instant render when offline
+    try {
+      const cached = localStorage.getItem(cacheKey(restaurantId))
+      if (cached) {
+        const { info, platos: cachedPlatos } = JSON.parse(cached)
+        if (cachedPlatos?.length) {
+          setPlatos(cachedPlatos)
+          if (info) setRestaurantInfo(info)
+        }
+      }
+    } catch { /* ignore corrupt cache */ }
+
     try {
       const { data, error } = await supabase.from('platos').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
       if (error) {
         setFetchError(`Error Supabase [${error.code ?? '?'}]: ${error.message}`)
       } else {
         setPlatos(data ?? [])
+        // Persist fresh data to cache
+        try {
+          const infoSnap = restaurantInfo
+          localStorage.setItem(cacheKey(restaurantId), JSON.stringify({ info: infoSnap, platos: data ?? [] }))
+        } catch { /* storage full — not critical */ }
       }
     } catch (err) {
       setFetchError(`Error de red: ${err.message}`)
@@ -103,6 +139,12 @@ export default function Menu() {
 
   return (
     <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: BG, minHeight: '100vh' }}>
+      {esOffline && (
+        <div style={{ background: '#7c6300', color: '#fef3c7', fontSize: 13, fontWeight: 500, textAlign: 'center', padding: '9px 16px', letterSpacing: 0.2 }}>
+          Sin conexión — mostrando carta guardada
+        </div>
+      )}
+
       <div style={{ position: 'relative', height: 230, overflow: 'hidden' }}>
         <img src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80" alt={heroNombre || 'Restaurante'} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.82) 100%)' }} />
@@ -186,6 +228,8 @@ export default function Menu() {
           {chatAbierto ? 'Cerrar asistente' : 'Asistente IA · Pregunta lo que quieras'}
         </button>
       </div>
+
+      <CookieBanner />
     </div>
   )
 }
