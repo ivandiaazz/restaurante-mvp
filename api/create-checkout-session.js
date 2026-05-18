@@ -33,8 +33,8 @@ export default async function handler(req, res) {
         },
         quantity: item.cantidad,
       })),
-      success_url: `https://restaurante-mvp-blue.vercel.app/menu/${restaurantId}/gracias?pedido_id=${pedidoId}`,
-      cancel_url: `https://restaurante-mvp-blue.vercel.app/order/${restaurantId}/${tableId}`,
+      success_url: `${process.env.VITE_APP_URL}/menu/${restaurantId}/gracias?pedido_id=${pedidoId}`,
+      cancel_url: `${process.env.VITE_APP_URL}/order/${restaurantId}/${tableId}`,
       metadata: { pedidoId },
     })
 

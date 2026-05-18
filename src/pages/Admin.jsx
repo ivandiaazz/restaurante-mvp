@@ -261,7 +261,7 @@ export default function Admin() {
             {Array.from({ length: numMesas }, (_, i) => i + 1).map(mesa => (
               <div key={mesa} style={{ background: '#fafafa', borderRadius: 16, padding: '20px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, border: '1px solid #f2f2f7' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#111', letterSpacing: 0.2 }}>Mesa {mesa}</div>
-                <QRCodeCanvas id={`qr-canvas-${mesa}`} value={`https://restaurante-mvp-blue.vercel.app/r/${restaurantId}?mesa=${mesa}`} size={130} level="M" marginSize={2} />
+                <QRCodeCanvas id={`qr-canvas-${mesa}`} value={`${import.meta.env.VITE_APP_URL}/r/${restaurantId}?mesa=${mesa}`} size={130} level="M" marginSize={2} />
                 <button onClick={() => descargarQR(mesa)} style={{ fontSize: 12, fontWeight: 600, padding: '7px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: font }}>Descargar</button>
               </div>
             ))}
