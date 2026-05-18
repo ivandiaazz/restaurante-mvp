@@ -27,11 +27,47 @@ export default function Admin() {
   const [formKey, setFormKey] = useState(0)
   const [numMesas, setNumMesas] = useState(10)
   const [restaurantInfo, setRestaurantInfo] = useState(null)
+  const [pushStatus, setPushStatus] = useState('idle') // idle | granted | denied | unsupported
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4)
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+    const rawData = atob(base64)
+    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
+  }
+
+  async function registrarPush() {
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushStatus('unsupported')
+      return
+    }
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') { setPushStatus('denied'); return }
+
+      const registration = await navigator.serviceWorker.ready
+      const existing = await registration.pushManager.getSubscription()
+      const pushSub = existing ?? await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY),
+      })
+
+      await supabase.from('push_subscriptions').upsert(
+        { restaurante_id: restaurantId, endpoint: pushSub.endpoint, subscription: pushSub.toJSON() },
+        { onConflict: 'restaurante_id,endpoint' }
+      )
+      setPushStatus('granted')
+    } catch (err) {
+      console.error('[push] error:', err)
+      setPushStatus('denied')
+    }
+  }
 
   useEffect(() => {
     fetchRestaurantInfo()
     fetchPedidos()
     fetchPlatos()
+    registrarPush()
 
     const sub = supabase
       .channel(`pedidos-${restaurantId}`)
@@ -146,16 +182,24 @@ export default function Admin() {
           <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 500 }}>
             {restaurantInfo?.tipo ? `${restaurantInfo.tipo} · ${restaurantInfo.ciudad}` : 'Restaurante'}
           </div>
-          <button
-            onClick={handleSignOut}
-            style={{
-              background: 'none', border: '1px solid #e8e8ed', borderRadius: 8,
-              cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#6e6e73',
-              padding: '5px 12px', fontFamily: font
-            }}
-          >
-            Cerrar sesión
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {pushStatus === 'granted' && (
+              <span title="Notificaciones activas" style={{ fontSize: 18, lineHeight: 1 }}>🔔</span>
+            )}
+            {pushStatus === 'denied' && (
+              <span title="Notificaciones desactivadas — actívalas en la configuración del navegador" style={{ fontSize: 18, lineHeight: 1, opacity: 0.5 }}>🔕</span>
+            )}
+            <button
+              onClick={handleSignOut}
+              style={{
+                background: 'none', border: '1px solid #e8e8ed', borderRadius: 8,
+                cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#6e6e73',
+                padding: '5px 12px', fontFamily: font
+              }}
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
         <div style={{ fontSize: 34, fontWeight: 700, color: '#111', letterSpacing: -1.5, lineHeight: 1, marginBottom: 24 }}>
           {nombreRestaurante}

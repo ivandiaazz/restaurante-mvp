@@ -41,12 +41,39 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(request)
         .then(res => {
-          if (res.ok) {
-            caches.open(CACHE).then(c => c.put(request, res.clone()))
-          }
+          if (res.ok) caches.open(CACHE).then(c => c.put(request, res.clone()))
           return res
         })
         .catch(() => caches.match(request).then(cached => cached || caches.match('/')))
     )
   }
+})
+
+// ── Push notifications ────────────────────────────────────────────────────────
+
+self.addEventListener('push', (e) => {
+  const data = e.data?.json() ?? {}
+  e.waitUntil(
+    self.registration.showNotification(data.title ?? 'Nuevo pedido', {
+      body: data.body ?? '',
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      data: { url: data.url ?? '/' },
+      vibrate: [200, 100, 200],
+      requireInteraction: true,
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const url = e.notification.data?.url ?? '/'
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      for (const client of list) {
+        if (client.url.endsWith(url) && 'focus' in client) return client.focus()
+      }
+      if (clients.openWindow) return clients.openWindow(url)
+    })
+  )
 })

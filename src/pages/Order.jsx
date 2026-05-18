@@ -70,6 +70,13 @@ export default function Order() {
           return
         }
 
+        // Notify admin (fire and forget)
+        fetch('/api/send-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restauranteId: restaurantId, mesa: tableId, items: carrito, total }),
+        }).catch(() => {})
+
         const piRes = await fetch('/api/create-payment-intent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -158,6 +165,13 @@ export default function Order() {
       setLoading(false)
       return
     }
+
+    // Notify admin (fire and forget)
+    fetch('/api/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restauranteId: restaurantId, mesa: tableId, items: carrito, total }),
+    }).catch(() => {})
 
     const res = await fetch('/api/create-checkout-session', {
       method: 'POST',
