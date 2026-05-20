@@ -90,45 +90,67 @@ export default function Admin() {
     fetchPlatos()
     registrarPush()
 
-    // Server-side filter requires RLS + policies to work — unreliable.
-    // Filter client-side instead so the channel always connects.
-    const channel = supabase
-      .channel(`admin-pedidos-${restaurantId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'pedidos' },
-        payload => {
-          if (payload.new?.restaurante_id !== restaurantId) {
-            console.log('[realtime] INSERT ignorado — restaurante_id recibido:', payload.new?.restaurante_id, '!= esperado:', restaurantId)
-            return
-          }
-          console.log('[realtime] INSERT pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
-          setPedidos(prev => [payload.new, ...prev])
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'pedidos' },
-        payload => {
-          if (payload.new?.restaurante_id !== restaurantId) {
-            console.log('[realtime] UPDATE ignorado — restaurante_id recibido:', payload.new?.restaurante_id, '!= esperado:', restaurantId)
-            return
-          }
-          console.log('[realtime] UPDATE pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
-          setPedidos(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[realtime] canal SUBSCRIBED ✓ — escuchando pedidos de', restaurantId)
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('[realtime] canal FALLO — estado:', status, err?.message ?? '(sin detalle)')
-        } else {
-          console.log('[realtime] canal status:', status)
-        }
-      })
+    const MAX_RETRIES = 5
+    let retries = 0
+    let retryTimer = null
+    let activeChannel = null
 
-    return () => { supabase.removeChannel(channel) }
+    function conectar() {
+      // Unique name per attempt so Supabase doesn't reuse a closed channel object
+      activeChannel = supabase
+        .channel(`admin-pedidos-${restaurantId}-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'pedidos' },
+          payload => {
+            if (payload.new?.restaurante_id !== restaurantId) {
+              console.log('[realtime] INSERT ignorado — restaurante_id recibido:', payload.new?.restaurante_id, '!= esperado:', restaurantId)
+              return
+            }
+            console.log('[realtime] INSERT pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
+            setPedidos(prev => [payload.new, ...prev])
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'pedidos' },
+          payload => {
+            if (payload.new?.restaurante_id !== restaurantId) {
+              console.log('[realtime] UPDATE ignorado — restaurante_id recibido:', payload.new?.restaurante_id, '!= esperado:', restaurantId)
+              return
+            }
+            console.log('[realtime] UPDATE pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
+            setPedidos(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
+          }
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            retries = 0
+            console.log('[realtime] canal SUBSCRIBED ✓ — escuchando pedidos de', restaurantId)
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('[realtime] canal FALLO — estado:', status, err?.message ?? '(sin detalle)')
+            if (retries < MAX_RETRIES) {
+              retries++
+              console.log(`[realtime] reintentando en 3s (intento ${retries}/${MAX_RETRIES})…`)
+              retryTimer = setTimeout(() => {
+                supabase.removeChannel(activeChannel)
+                conectar()
+              }, 3000)
+            } else {
+              console.error('[realtime] máximo de reintentos (5) alcanzado — sin reconexión')
+            }
+          } else {
+            console.log('[realtime] canal status:', status)
+          }
+        })
+    }
+
+    conectar()
+
+    return () => {
+      clearTimeout(retryTimer)
+      if (activeChannel) supabase.removeChannel(activeChannel)
+    }
   }, [restaurantId])
 
   async function fetchRestaurantInfo() {
