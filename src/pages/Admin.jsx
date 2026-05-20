@@ -32,6 +32,11 @@ export default function Admin() {
   const [pushStatus, setPushStatus] = useState('idle') // idle | granted | denied | unsupported
   const [periodoAnalytics, setPeriodoAnalytics] = useState('semana')
   const [valoraciones, setValoraciones] = useState([])
+  const [promociones, setPromociones] = useState([])
+  const [nuevaPromo, setNuevaPromo] = useState({ nombre: '', descripcion: '', precio: '', solo_hoy: false, fecha_inicio: '', fecha_fin: '' })
+  const [guardandoPromo, setGuardandoPromo] = useState(false)
+  const [formPromoKey, setFormPromoKey] = useState(0)
+  const [mostrarFormPromo, setMostrarFormPromo] = useState(false)
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4)
@@ -91,6 +96,7 @@ export default function Admin() {
     fetchPedidos()
     fetchPlatos()
     fetchValoraciones()
+    fetchPromociones()
     registrarPush()
 
     const MAX_RETRIES = 5
@@ -189,6 +195,47 @@ export default function Admin() {
       .select('puntuacion')
       .eq('restaurante_id', restaurantId)
     if (data) setValoraciones(data)
+  }
+
+  async function fetchPromociones() {
+    const { data } = await supabase
+      .from('promociones')
+      .select('*')
+      .eq('restaurante_id', restaurantId)
+      .order('created_at', { ascending: false })
+    if (data) setPromociones(data)
+  }
+
+  async function agregarPromocion() {
+    setErrorMsg('')
+    setOkMsg('')
+    const nombre = nuevaPromo.nombre?.trim()
+    const precio = nuevaPromo.precio?.toString().trim()
+    if (!nombre || !precio) { setErrorMsg('Nombre y precio son obligatorios.'); return }
+    setGuardandoPromo(true)
+    const payload = {
+      nombre,
+      descripcion: nuevaPromo.descripcion?.trim() ?? '',
+      precio: parseFloat(precio),
+      solo_hoy: nuevaPromo.solo_hoy,
+      fecha_inicio: (!nuevaPromo.solo_hoy && nuevaPromo.fecha_inicio) ? nuevaPromo.fecha_inicio : null,
+      fecha_fin: (!nuevaPromo.solo_hoy && nuevaPromo.fecha_fin) ? nuevaPromo.fecha_fin : null,
+      restaurante_id: restaurantId,
+      activo: true,
+    }
+    const { error } = await supabase.from('promociones').insert(payload)
+    setGuardandoPromo(false)
+    if (error) { setErrorMsg(`Error: ${error.message}`); return }
+    setOkMsg(`"${nombre}" añadida como promoción.`)
+    setNuevaPromo({ nombre: '', descripcion: '', precio: '', solo_hoy: false, fecha_inicio: '', fecha_fin: '' })
+    setFormPromoKey(k => k + 1)
+    setMostrarFormPromo(false)
+    fetchPromociones()
+  }
+
+  async function togglePromocion(promo) {
+    await supabase.from('promociones').update({ activo: !promo.activo }).eq('id', promo.id)
+    fetchPromociones()
   }
 
   async function agregarPlato() {
@@ -422,6 +469,75 @@ export default function Admin() {
 
       {tab === 'carta' && (
         <div style={{ padding: '16px 24px' }}>
+
+          {/* Promociones */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600 }}>Promociones</div>
+              <button
+                onClick={() => { setMostrarFormPromo(!mostrarFormPromo); setErrorMsg(''); setOkMsg('') }}
+                style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, border: '1px solid #e8e8ed', borderRadius: 10, cursor: 'pointer', background: mostrarFormPromo ? '#111' : '#fff', color: mostrarFormPromo ? '#fff' : '#111', fontFamily: font }}
+              >
+                {mostrarFormPromo ? 'Cancelar' : '+ Añadir'}
+              </button>
+            </div>
+
+            {mostrarFormPromo && (
+              <div key={formPromoKey} style={{ background: '#fafafa', borderRadius: 14, padding: '16px', marginBottom: 14, display: 'grid', gap: 10 }}>
+                {[
+                  { field: 'nombre', placeholder: 'Nombre de la promoción' },
+                  { field: 'descripcion', placeholder: 'Descripción (opcional)' },
+                  { field: 'precio', placeholder: 'Precio (ej: 9.90)' },
+                ].map(({ field, placeholder }) => (
+                  <input key={field} placeholder={placeholder} value={nuevaPromo[field] ?? ''} onChange={e => { const v = e.target.value; setNuevaPromo(prev => ({ ...prev, [field]: v })) }} style={{ padding: '11px 14px', borderRadius: 10, border: 'none', background: '#fff', fontSize: 14, outline: 'none', color: '#111', fontFamily: font, width: '100%', boxSizing: 'border-box', boxShadow: '0 0 0 1px #e8e8ed' }} />
+                ))}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#111', cursor: 'pointer', padding: '4px 0' }}>
+                  <input type="checkbox" checked={nuevaPromo.solo_hoy} onChange={e => setNuevaPromo(prev => ({ ...prev, solo_hoy: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#111', cursor: 'pointer' }} />
+                  Solo hoy (Menú del día)
+                </label>
+                {!nuevaPromo.solo_hoy && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#aeaeb2', marginBottom: 4, letterSpacing: 0.5 }}>Desde</div>
+                      <input type="date" value={nuevaPromo.fecha_inicio} onChange={e => setNuevaPromo(prev => ({ ...prev, fecha_inicio: e.target.value }))} style={{ padding: '10px 12px', borderRadius: 10, border: 'none', background: '#fff', fontSize: 13, outline: 'none', color: '#111', fontFamily: font, width: '100%', boxSizing: 'border-box', boxShadow: '0 0 0 1px #e8e8ed' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#aeaeb2', marginBottom: 4, letterSpacing: 0.5 }}>Hasta</div>
+                      <input type="date" value={nuevaPromo.fecha_fin} onChange={e => setNuevaPromo(prev => ({ ...prev, fecha_fin: e.target.value }))} style={{ padding: '10px 12px', borderRadius: 10, border: 'none', background: '#fff', fontSize: 13, outline: 'none', color: '#111', fontFamily: font, width: '100%', boxSizing: 'border-box', boxShadow: '0 0 0 1px #e8e8ed' }} />
+                    </div>
+                  </div>
+                )}
+                {errorMsg && <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 10, padding: '10px 14px' }}>{errorMsg}</div>}
+                {okMsg && <div style={{ fontSize: 13, color: '#166534', background: '#f0fdf4', borderRadius: 10, padding: '10px 14px' }}>{okMsg}</div>}
+                <button onClick={agregarPromocion} disabled={guardandoPromo} style={{ padding: '13px 20px', background: guardandoPromo ? '#6e6e73' : '#111', color: '#fff', border: 'none', borderRadius: 10, cursor: guardandoPromo ? 'default' : 'pointer', fontSize: 14, fontWeight: 600, fontFamily: font }}>
+                  {guardandoPromo ? 'Guardando…' : 'Crear promoción'}
+                </button>
+              </div>
+            )}
+
+            {promociones.length === 0 && !mostrarFormPromo ? (
+              <div style={{ fontSize: 13, color: '#aeaeb2', textAlign: 'center', padding: '16px 0' }}>Sin promociones activas</div>
+            ) : promociones.map(promo => {
+              const badge = promo.solo_hoy ? 'Menú del día' : (promo.fecha_inicio || promo.fecha_fin) ? `${promo.fecha_inicio ?? ''}${promo.fecha_fin ? ` → ${promo.fecha_fin}` : ''}` : 'Oferta'
+              return (
+                <div key={promo.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid #f2f2f7' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, background: promo.activo ? '#fffbeb' : '#f5f5f7', color: promo.activo ? '#92400e' : '#aeaeb2', borderRadius: 4, padding: '2px 6px', letterSpacing: 0.6, textTransform: 'uppercase', flexShrink: 0 }}>{badge}</span>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: promo.activo ? '#111' : '#aeaeb2', textDecoration: promo.activo ? 'none' : 'line-through' }}>{promo.nombre}</div>
+                    </div>
+                    <div style={{ fontSize: 13, color: '#6e6e73' }}>{Number(promo.precio).toFixed(2)}€</div>
+                  </div>
+                  <button onClick={() => togglePromocion(promo)} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, border: '1px solid #e8e8ed', borderRadius: 10, cursor: 'pointer', background: '#fff', color: '#111', fontFamily: font, flexShrink: 0, marginLeft: 12 }}>
+                    {promo.activo ? 'Desactivar' : 'Activar'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ height: 1, background: '#f2f2f7', marginBottom: 24 }} />
+
           <div style={{ marginBottom: 32 }}>
             {platos.length === 0 && <div style={{ textAlign: 'center', padding: '32px 0', color: '#aeaeb2', fontSize: 14 }}>Aún no hay platos en la carta</div>}
             {platos.map(plato => (

@@ -44,6 +44,7 @@ export default function Menu() {
   const [idioma, setIdioma] = useState('ES')
   const [traduciendo, setTraduciendo] = useState(false)
   const [platosTraducidos, setPlatosTraducidos] = useState({}) // { EN: [...], FR: [...], DE: [...] }
+  const [promociones, setPromociones] = useState([])
 
   // Online / offline listeners
   useEffect(() => {
@@ -62,8 +63,10 @@ export default function Menu() {
     setFetchError('')
     setIdioma('ES')
     setPlatosTraducidos({})
+    setPromociones([])
     fetchRestaurantInfo()
     fetchPlatos()
+    fetchPromociones()
   }, [restaurantId])
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [chatMessages])
 
@@ -73,6 +76,21 @@ export default function Menu() {
       if (data) {
         setRestaurantInfo(data)
         // Persist info alongside platos in cache (updated below in fetchPlatos)
+      }
+    } catch { /* no bloquea el resto */ }
+  }
+
+  async function fetchPromociones() {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const { data } = await supabase.from('promociones').select('*').eq('restaurante_id', restaurantId).eq('activo', true)
+      if (data) {
+        setPromociones(data.filter(p => {
+          if (p.solo_hoy) return new Date(p.created_at).toISOString().split('T')[0] === today
+          const afterStart = !p.fecha_inicio || p.fecha_inicio <= today
+          const beforeEnd  = !p.fecha_fin   || p.fecha_fin   >= today
+          return afterStart && beforeEnd
+        }))
       }
     } catch { /* no bloquea el resto */ }
   }
@@ -285,6 +303,41 @@ export default function Menu() {
             <span style={{ fontSize: 12, color: MUTED, letterSpacing: 0.4 }}>Traduciendo carta…</span>
           </div>
         )}
+
+        {promociones.length > 0 && (
+          <div style={{ padding: '18px 24px 6px' }}>
+            <div style={{ fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', color: GOLD, fontWeight: 700, marginBottom: 12 }}>Promociones</div>
+            {promociones.map(promo => {
+              const enCarrito = carrito.find(p => p.id === promo.id)
+              const badgeLabel = promo.solo_hoy ? 'Menú del día' : 'Oferta'
+              return (
+                <div key={promo.id} style={{ background: 'rgba(201,164,101,0.07)', border: `1px solid rgba(201,164,101,0.28)`, borderRadius: 14, padding: '14px 16px', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, background: GOLD, color: BG, borderRadius: 4, padding: '2px 6px', letterSpacing: 0.8, textTransform: 'uppercase', flexShrink: 0 }}>{badgeLabel}</span>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: TEXT, lineHeight: 1.3 }}>{promo.nombre}</span>
+                    </div>
+                    {promo.descripcion && <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.5 }}>{promo.descripcion}</div>}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10, flexShrink: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>{Number(promo.precio).toFixed(2)}€</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {enCarrito && (
+                        <>
+                          <button onClick={() => removeFromCarrito(promo)} style={{ width: 28, height: 28, borderRadius: '50%', background: SURF, border: `1px solid ${SEP}`, fontSize: 18, cursor: 'pointer', color: TEXT, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>−</button>
+                          <span style={{ fontSize: 14, fontWeight: 600, minWidth: 18, textAlign: 'center', color: TEXT }}>{enCarrito.cantidad}</span>
+                        </>
+                      )}
+                      <button onClick={() => addToCarrito(promo)} style={{ width: 28, height: 28, borderRadius: '50%', background: GOLD, border: 'none', fontSize: 20, cursor: 'pointer', color: BG, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, fontWeight: 700 }}>+</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            <div style={{ height: 1, background: `rgba(201,164,101,0.15)`, margin: '8px 0 4px' }} />
+          </div>
+        )}
+
         {platosAMostrar.map(plato => {
           const enCarrito = carrito.find(p => p.id === plato.id)
           return (
