@@ -37,6 +37,10 @@ export default function Admin() {
   const [guardandoPromo, setGuardandoPromo] = useState(false)
   const [formPromoKey, setFormPromoKey] = useState(0)
   const [mostrarFormPromo, setMostrarFormPromo] = useState(false)
+  const [reservas, setReservas] = useState([])
+  const [filtroReservas, setFiltroReservas] = useState('hoy')
+  const [googlePlaceId, setGooglePlaceId] = useState('')
+  const [guardandoPlaceId, setGuardandoPlaceId] = useState(false)
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4)
@@ -97,6 +101,7 @@ export default function Admin() {
     fetchPlatos()
     fetchValoraciones()
     fetchPromociones()
+    fetchReservas()
     registrarPush()
 
     const MAX_RETRIES = 5
@@ -165,10 +170,13 @@ export default function Admin() {
   async function fetchRestaurantInfo() {
     const { data } = await supabase
       .from('restaurants')
-      .select('nombre, tipo, ciudad')
+      .select('nombre, tipo, ciudad, google_place_id')
       .eq('slug', restaurantId)
       .single()
-    if (data) setRestaurantInfo(data)
+    if (data) {
+      setRestaurantInfo(data)
+      setGooglePlaceId(data.google_place_id ?? '')
+    }
   }
 
   async function fetchPedidos() {
@@ -236,6 +244,26 @@ export default function Admin() {
   async function togglePromocion(promo) {
     await supabase.from('promociones').update({ activo: !promo.activo }).eq('id', promo.id)
     fetchPromociones()
+  }
+
+  async function fetchReservas() {
+    const { data } = await supabase
+      .from('reservas')
+      .select('*')
+      .eq('restaurante_id', restaurantId)
+      .order('fecha', { ascending: true })
+      .order('hora', { ascending: true })
+    if (data) setReservas(data)
+  }
+
+  async function guardarPlaceId() {
+    setGuardandoPlaceId(true)
+    await supabase
+      .from('restaurants')
+      .update({ google_place_id: googlePlaceId.trim() || null })
+      .eq('slug', restaurantId)
+    setGuardandoPlaceId(false)
+    setOkMsg('Google Place ID guardado.')
   }
 
   async function agregarPlato() {
@@ -370,6 +398,35 @@ export default function Admin() {
     ? valoraciones.reduce((s, v) => s + v.puntuacion, 0) / valoraciones.length
     : null
 
+  // ── Reservas ──────────────────────────────────────────────────────────────
+  function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  const hoyStr = localDateStr(new Date())
+  const mananaStr = localDateStr(new Date(Date.now() + 86400000))
+  const semanaEndStr = localDateStr(new Date(Date.now() + 6 * 86400000))
+  const reservasFiltradas = reservas.filter(r => {
+    if (filtroReservas === 'hoy') return r.fecha === hoyStr
+    if (filtroReservas === 'mañana') return r.fecha === mananaStr
+    return r.fecha >= hoyStr && r.fecha <= semanaEndStr
+  })
+
+  function confirmarReserva(reserva) {
+    const tel = reserva.telefono.replace(/\D/g, '')
+    const fechaStr = new Date(reserva.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+    const msg = `Hola ${reserva.nombre}, confirmamos tu reserva para ${reserva.personas} ${reserva.personas === 1 ? 'persona' : 'personas'} el ${fechaStr} a las ${reserva.hora.slice(0, 5)} en ${nombreRestaurante}. ¡Te esperamos!`
+    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank')
+    supabase.from('reservas').update({ estado: 'confirmada' }).eq('id', reserva.id).then(() => fetchReservas())
+  }
+
+  function cancelarReserva(reserva) {
+    const tel = reserva.telefono.replace(/\D/g, '')
+    const fechaStr = new Date(reserva.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+    const msg = `Hola ${reserva.nombre}, lamentablemente debemos cancelar tu reserva del ${fechaStr} a las ${reserva.hora.slice(0, 5)} en ${nombreRestaurante}. Disculpa las molestias.`
+    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank')
+    supabase.from('reservas').update({ estado: 'cancelada' }).eq('id', reserva.id).then(() => fetchReservas())
+  }
+
   return (
     <div style={{ fontFamily: font, maxWidth: 600, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
 
@@ -402,7 +459,7 @@ export default function Admin() {
         </div>
 
         <div style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
-          {['pedidos', 'carta', 'qr', 'analytics'].map(t => (
+          {['pedidos', 'carta', 'qr', 'analytics', 'reservas'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -419,7 +476,8 @@ export default function Admin() {
                 ? `Pedidos${pedidosActivos.length ? ` (${pedidosActivos.length})` : ''}`
                 : t === 'carta' ? 'Carta'
                 : t === 'qr' ? 'QR Mesas'
-                : 'Analytics'}
+                : t === 'analytics' ? 'Analytics'
+                : 'Reservas'}
             </button>
           ))}
         </div>
@@ -569,6 +627,32 @@ export default function Admin() {
               {guardando ? 'Guardando…' : 'Añadir plato'}
             </button>
           </div>
+
+          {/* Google Reviews */}
+          <div style={{ marginTop: 36, paddingTop: 28, borderTop: '1px solid #f2f2f7' }}>
+            <div style={{ fontSize: 13, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 8 }}>Google Reviews</div>
+            <div style={{ fontSize: 12, color: '#6e6e73', lineHeight: 1.6, marginBottom: 14 }}>
+              Con un Place ID, clientes que valoran 4-5 estrellas verán un botón para dejar reseña en Google.{' '}
+              <a href="https://developers.google.com/maps/documentation/places/web-service/place-id#find-id" target="_blank" rel="noopener noreferrer" style={{ color: '#111', fontWeight: 600, textDecoration: 'underline' }}>
+                ¿Cómo encontrarlo?
+              </a>
+            </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <input
+                placeholder="Google Place ID (ej: ChIJ...)"
+                value={googlePlaceId}
+                onChange={e => setGooglePlaceId(e.target.value)}
+                style={{ padding: '12px 14px', borderRadius: 12, border: 'none', background: '#f5f5f7', fontSize: 14, outline: 'none', color: '#111', fontFamily: font, width: '100%', boxSizing: 'border-box' }}
+              />
+              <button
+                onClick={guardarPlaceId}
+                disabled={guardandoPlaceId}
+                style={{ padding: '12px 20px', background: guardandoPlaceId ? '#6e6e73' : '#111', color: '#fff', border: 'none', borderRadius: 12, cursor: guardandoPlaceId ? 'default' : 'pointer', fontSize: 14, fontWeight: 600, fontFamily: font }}
+              >
+                {guardandoPlaceId ? 'Guardando…' : 'Guardar Place ID'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -688,6 +772,82 @@ export default function Admin() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {tab === 'reservas' && (
+        <div style={{ padding: '16px 24px 40px' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {[
+              { id: 'hoy', label: 'Hoy' },
+              { id: 'mañana', label: 'Mañana' },
+              { id: 'semana', label: 'Esta semana' },
+            ].map(f => (
+              <button
+                key={f.id}
+                onClick={() => setFiltroReservas(f.id)}
+                style={{
+                  padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: font,
+                  borderRadius: 10, cursor: 'pointer', border: 'none',
+                  background: filtroReservas === f.id ? '#111' : '#f5f5f7',
+                  color: filtroReservas === f.id ? '#fff' : '#6e6e73',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {reservasFiltradas.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: '#aeaeb2', fontSize: 14 }}>
+              Sin reservas {filtroReservas === 'hoy' ? 'para hoy' : filtroReservas === 'mañana' ? 'para mañana' : 'esta semana'}
+            </div>
+          ) : reservasFiltradas.map(reserva => {
+            const estadoCol = {
+              pendiente:  { bg: '#fffbeb', text: '#92400e', dot: '#f59e0b' },
+              confirmada: { bg: '#ecfdf5', text: '#065f46', dot: '#10b981' },
+              cancelada:  { bg: '#fef2f2', text: '#991b1b', dot: '#ef4444' },
+            }
+            const c = estadoCol[reserva.estado] ?? estadoCol.pendiente
+            const fechaDisplay = new Date(reserva.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })
+            return (
+              <div key={reserva.id} style={{ border: '1px solid #f2f2f7', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#111' }}>{reserva.nombre}</div>
+                    <div style={{ fontSize: 13, color: '#6e6e73', marginTop: 2 }}>
+                      {fechaDisplay} · {reserva.hora.slice(0, 5)} · {reserva.personas} {reserva.personas === 1 ? 'persona' : 'personas'}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#6e6e73', marginTop: 1 }}>{reserva.telefono}</div>
+                    {reserva.nota && <div style={{ fontSize: 12, color: '#aeaeb2', marginTop: 4, fontStyle: 'italic' }}>{reserva.nota}</div>}
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, background: c.bg, color: c.text, display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, marginLeft: 10 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.dot, display: 'inline-block' }} />
+                    {reserva.estado}
+                  </span>
+                </div>
+                {reserva.estado !== 'cancelada' && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {reserva.estado === 'pendiente' && (
+                      <button
+                        onClick={() => confirmarReserva(reserva)}
+                        style={{ flex: 1, padding: '9px', fontSize: 12, fontWeight: 600, background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', borderRadius: 10, cursor: 'pointer', fontFamily: font }}
+                      >
+                        Confirmar por WhatsApp
+                      </button>
+                    )}
+                    <button
+                      onClick={() => cancelarReserva(reserva)}
+                      style={{ padding: '9px 16px', fontSize: 12, fontWeight: 600, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 10, cursor: 'pointer', fontFamily: font }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 

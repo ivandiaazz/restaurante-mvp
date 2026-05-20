@@ -284,7 +284,7 @@ export default function Menu() {
         </div>
       </div>
 
-      <div style={{ paddingBottom: 220 }}>
+      <div style={{ paddingBottom: 268 }}>
         {cargando && (
           <div style={{ padding: '40px 24px', color: MUTED, fontSize: 14, textAlign: 'center' }}>Cargando carta…</div>
         )}
@@ -394,6 +394,14 @@ export default function Menu() {
             </div>
           </div>
         )}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <button
+            onClick={() => navigate(`/reservar/${restaurantId}`)}
+            style={{ flex: 1, padding: '12px 16px', background: 'rgba(201,164,101,0.12)', color: GOLD, border: `1px solid rgba(201,164,101,0.28)`, borderRadius: 14, cursor: 'pointer', fontSize: 13, fontWeight: 600, letterSpacing: 0.3, fontFamily: font }}
+          >
+            Reservar mesa →
+          </button>
+        </div>
         <button onClick={() => setChatAbierto(!chatAbierto)} style={{ width: '100%', padding: 14, background: SURF, color: GOLD, border: `1px solid rgba(201,164,101,0.22)`, borderRadius: 14, cursor: 'pointer', fontSize: 13, fontWeight: 500, letterSpacing: 0.3, fontFamily: font }}>
           {chatAbierto ? 'Cerrar asistente' : 'Asistente IA · Pregunta lo que quieras'}
         </button>

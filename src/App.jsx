@@ -9,6 +9,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Privacidad from './pages/Privacidad'
 import Valorar from './pages/Valorar'
+import Reservar from './pages/Reservar'
 
 function AdminRedirect() {
   const { restaurant, authLoading } = useAuth()
@@ -31,6 +32,7 @@ function App() {
           <Route path="/admin/:restaurantId" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRedirect />} />
           <Route path="/valorar/:pedidoId" element={<Valorar />} />
+          <Route path="/reservar/:restaurantId" element={<Reservar />} />
           <Route path="/privacidad" element={<Privacidad />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>

@@ -12,6 +12,7 @@ export default function Valorar() {
   const [loading, setLoading] = useState(true)
   const [pedido, setPedido] = useState(null)
   const [nombreRestaurante, setNombreRestaurante] = useState('')
+  const [googlePlaceId, setGooglePlaceId] = useState(null)
   const [yaValorado, setYaValorado] = useState(false)
   const [puntuacion, setPuntuacion] = useState(0)
   const [hoveredStar, setHoveredStar] = useState(0)
@@ -36,10 +37,11 @@ export default function Valorar() {
 
       const { data: rest } = await supabase
         .from('restaurants')
-        .select('nombre')
+        .select('nombre, google_place_id')
         .eq('slug', p.restaurante_id)
         .single()
       setNombreRestaurante(rest?.nombre ?? p.restaurante_id)
+      setGooglePlaceId(rest?.google_place_id ?? null)
       setLoading(false)
     }
 
@@ -101,12 +103,34 @@ export default function Valorar() {
   }
 
   if (enviado) {
+    const showGoogleBtn = puntuacion >= 4 && googlePlaceId
     return (
       <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
           <div style={{ width: 72, height: 72, background: '#111', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: 32, color: '#fff' }}>✓</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: '#111', marginBottom: 10, letterSpacing: -0.5 }}>¡Gracias por tu valoración!</div>
           <div style={{ fontSize: 15, color: '#6e6e73', lineHeight: 1.6 }}>Tu opinión nos ayuda a seguir mejorando.</div>
+          {showGoogleBtn && (
+            <div style={{ marginTop: 32 }}>
+              <div style={{ fontSize: 14, color: '#6e6e73', marginBottom: 14, lineHeight: 1.5 }}>
+                ¿Te ha gustado? ¡Cuéntaselo a todos en Google!
+              </div>
+              <a
+                href={`https://search.google.com/local/writereview?placeid=${googlePlaceId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: '#111', color: '#fff', textDecoration: 'none',
+                  padding: '14px 24px', borderRadius: 14, fontSize: 14, fontWeight: 600,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                }}
+              >
+                <span>Dejar reseña en Google</span>
+                <span style={{ fontSize: 16 }}>⭐</span>
+              </a>
+            </div>
+          )}
         </div>
       </div>
     )
