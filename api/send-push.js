@@ -76,7 +76,15 @@ export default async function handler(req, res) {
     })
 
     const results = await Promise.allSettled(
-      subs.map(({ subscription }) => webpush.sendNotification(subscription, payload))
+      subs.map(({ subscription }) => {
+        // Supabase devuelve JSONB como objeto, pero por si acaso viene como string
+        const sub = typeof subscription === 'string' ? JSON.parse(subscription) : subscription
+        if (!sub?.endpoint || !sub?.keys?.auth || !sub?.keys?.p256dh) {
+          console.error('[send-push] suscripción malformada — faltan campos:', JSON.stringify(sub).slice(0, 100))
+          return Promise.reject(new Error('Subscription malformada'))
+        }
+        return webpush.sendNotification(sub, payload)
+      })
     )
 
     // Log detallado de cada resultado

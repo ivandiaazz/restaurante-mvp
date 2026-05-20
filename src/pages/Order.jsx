@@ -174,12 +174,15 @@ export default function Order() {
       return
     }
 
-    // Notify admin (fire and forget)
+    // Notify admin — keepalive ensures the request completes even after Stripe redirect
     fetch('/api/send-push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ restauranteId: restaurantId, mesa: tableId, items: carrito, total }),
-    }).catch(() => {})
+      keepalive: true,
+    })
+      .then(r => r.json().then(j => console.log('[send-push] checkout respuesta:', r.status, j)))
+      .catch(err => console.error('[send-push] checkout fetch error:', err.message))
 
     const res = await fetch('/api/create-checkout-session', {
       method: 'POST',

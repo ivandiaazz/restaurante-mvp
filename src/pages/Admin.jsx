@@ -98,7 +98,10 @@ export default function Admin() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'pedidos' },
         payload => {
-          if (payload.new?.restaurante_id !== restaurantId) return
+          if (payload.new?.restaurante_id !== restaurantId) {
+            console.log('[realtime] INSERT ignorado — restaurante_id recibido:', payload.new?.restaurante_id, '!= esperado:', restaurantId)
+            return
+          }
           console.log('[realtime] INSERT pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
           setPedidos(prev => [payload.new, ...prev])
         }
@@ -107,13 +110,22 @@ export default function Admin() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'pedidos' },
         payload => {
-          if (payload.new?.restaurante_id !== restaurantId) return
+          if (payload.new?.restaurante_id !== restaurantId) {
+            console.log('[realtime] UPDATE ignorado — restaurante_id recibido:', payload.new?.restaurante_id, '!= esperado:', restaurantId)
+            return
+          }
           console.log('[realtime] UPDATE pedido mesa:', payload.new.mesa, 'estado:', payload.new.estado)
           setPedidos(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
         }
       )
       .subscribe((status, err) => {
-        console.log('[realtime] channel status:', status, err ? err.message : '')
+        if (status === 'SUBSCRIBED') {
+          console.log('[realtime] canal SUBSCRIBED ✓ — escuchando pedidos de', restaurantId)
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('[realtime] canal FALLO — estado:', status, err?.message ?? '(sin detalle)')
+        } else {
+          console.log('[realtime] canal status:', status)
+        }
       })
 
     return () => { supabase.removeChannel(channel) }
