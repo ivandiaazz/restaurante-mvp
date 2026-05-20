@@ -31,6 +31,7 @@ export default function Admin() {
   const [restaurantInfo, setRestaurantInfo] = useState(null)
   const [pushStatus, setPushStatus] = useState('idle') // idle | granted | denied | unsupported
   const [periodoAnalytics, setPeriodoAnalytics] = useState('semana')
+  const [valoraciones, setValoraciones] = useState([])
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4)
@@ -89,6 +90,7 @@ export default function Admin() {
     fetchRestaurantInfo()
     fetchPedidos()
     fetchPlatos()
+    fetchValoraciones()
     registrarPush()
 
     const MAX_RETRIES = 5
@@ -179,6 +181,14 @@ export default function Admin() {
       .eq('restaurante_id', restaurantId)
       .order('nombre')
     if (data) setPlatos(data)
+  }
+
+  async function fetchValoraciones() {
+    const { data } = await supabase
+      .from('valoraciones')
+      .select('puntuacion')
+      .eq('restaurante_id', restaurantId)
+    if (data) setValoraciones(data)
   }
 
   async function agregarPlato() {
@@ -308,6 +318,10 @@ export default function Admin() {
 
   const BAR_H = 80 // max bar height px
   const barPx = (val, max) => val > 0 ? Math.max(Math.round((val / max) * BAR_H), 4) : 0
+
+  const valoracionMedia = valoraciones.length
+    ? valoraciones.reduce((s, v) => s + v.puntuacion, 0) / valoraciones.length
+    : null
 
   return (
     <div style={{ fontFamily: font, maxWidth: 600, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
@@ -467,6 +481,23 @@ export default function Admin() {
               </button>
             ))}
           </div>
+
+          {/* Valoración media */}
+          {valoracionMedia !== null && (
+            <div style={{ border: '1px solid #f2f2f7', borderRadius: 16, padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', marginBottom: 10 }}>
+              <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 8 }}>Valoración media</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 26, fontWeight: 700, color: '#111', letterSpacing: -0.5 }}>{valoracionMedia.toFixed(1)}</span>
+                <span style={{ fontSize: 20, letterSpacing: 1, color: '#f59e0b' }}>
+                  {'★'.repeat(Math.round(valoracionMedia))}
+                  <span style={{ color: '#e5e7eb' }}>{'★'.repeat(5 - Math.round(valoracionMedia))}</span>
+                </span>
+                <span style={{ fontSize: 12, color: '#aeaeb2', fontWeight: 500 }}>
+                  {valoraciones.length} valoración{valoraciones.length !== 1 ? 'es' : ''}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Cards de resumen */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 28 }}>

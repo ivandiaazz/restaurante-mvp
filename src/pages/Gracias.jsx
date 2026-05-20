@@ -16,14 +16,16 @@ export default function Gracias() {
     async function finalizarPedido() {
       // Marcar como pagado y leer los datos del pedido en una sola consulta
       const [{ data: pedido }] = await Promise.all([
-        supabase.from('pedidos').select('restaurante_id, mesa, items, total').eq('id', pedidoId).single(),
+        supabase.from('pedidos').select('restaurante_id, mesa, items, total, email_cliente').eq('id', pedidoId).single(),
         supabase.from('pedidos').update({ estado: 'pagado' }).eq('id', pedidoId),
       ])
 
       setListo(true)
 
-      // Enviar ticket por email si el cliente lo proporcionó (fire and forget)
-      if (email && pedido) {
+      if (!pedido) return
+
+      // Ticket de compra (fire and forget)
+      if (email) {
         fetch('/api/send-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -35,6 +37,22 @@ export default function Gracias() {
             total: pedido.total,
           }),
         }).catch(() => {})
+      }
+
+      // Email de valoración diferido 2h (fire and forget)
+      if (pedido.email_cliente) {
+        fetch('/api/send-review-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pedidoId,
+            restauranteId: pedido.restaurante_id,
+            emailCliente: pedido.email_cliente,
+            mesa: pedido.mesa,
+          }),
+        })
+          .then(r => r.json().then(j => console.log('[send-review-email] programado:', r.status, j)))
+          .catch(err => console.error('[send-review-email] error:', err.message))
       }
     }
 

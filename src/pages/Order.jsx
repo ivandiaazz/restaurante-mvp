@@ -64,7 +64,7 @@ export default function Order() {
         console.log('[Order/PR] INSERT pedido restaurante_id:', restaurantId, 'mesa:', tableId)
         const { data: pedido, error: dbErr } = await supabase
           .from('pedidos')
-          .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
+          .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago', ...(emailCliente ? { email_cliente: emailCliente } : {}) })
           .select('id')
           .single()
 
@@ -164,7 +164,7 @@ export default function Order() {
     console.log('[Order/checkout] INSERT pedido restaurante_id:', restaurantId, 'mesa:', tableId)
     const { data: pedido, error: dbError } = await supabase
       .from('pedidos')
-      .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
+      .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago', ...(emailCliente ? { email_cliente: emailCliente } : {}) })
       .select('id')
       .single()
 
