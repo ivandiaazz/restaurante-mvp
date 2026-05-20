@@ -12,6 +12,14 @@ const SEP   = 'rgba(201,164,101,0.12)'
 const font  = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif'
 
 function cacheKey(id) { return `mqr_${id}` }
+function transCacheKey(id, lang) { return `mqr_trans_${id}_${lang}` }
+
+const IDIOMAS = [
+  { code: 'ES', flag: '🇪🇸' },
+  { code: 'EN', flag: '🇬🇧' },
+  { code: 'FR', flag: '🇫🇷' },
+  { code: 'DE', flag: '🇩🇪' },
+]
 
 export default function Menu() {
   const { restaurantId, tableId: tableIdParam } = useParams()
@@ -33,6 +41,10 @@ export default function Menu() {
   const [esOffline, setEsOffline] = useState(!navigator.onLine)
   const chatRef = useRef(null)
 
+  const [idioma, setIdioma] = useState('ES')
+  const [traduciendo, setTraduciendo] = useState(false)
+  const [platosTraducidos, setPlatosTraducidos] = useState({}) // { EN: [...], FR: [...], DE: [...] }
+
   // Online / offline listeners
   useEffect(() => {
     function goOnline()  { setEsOffline(false) }
@@ -45,7 +57,14 @@ export default function Menu() {
     }
   }, [])
 
-  useEffect(() => { setCargando(true); setFetchError(''); fetchRestaurantInfo(); fetchPlatos() }, [restaurantId])
+  useEffect(() => {
+    setCargando(true)
+    setFetchError('')
+    setIdioma('ES')
+    setPlatosTraducidos({})
+    fetchRestaurantInfo()
+    fetchPlatos()
+  }, [restaurantId])
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, [chatMessages])
 
   async function fetchRestaurantInfo() {
@@ -90,7 +109,9 @@ export default function Menu() {
     }
   }
 
-  function addToCarrito(plato) {
+  function addToCarrito(platoVisible) {
+    // Always store the original Spanish plato so admin sees Spanish names in orders
+    const plato = platos.find(p => p.id === platoVisible.id) ?? platoVisible
     setCarrito(prev => {
       const existe = prev.find(p => p.id === plato.id)
       if (existe) return prev.map(p => p.id === plato.id ? { ...p, cantidad: p.cantidad + 1 } : p)
@@ -132,10 +153,63 @@ export default function Menu() {
     setLoading(false)
   }
 
+  async function cambiarIdioma(code) {
+    if (code === idioma || traduciendo) return
+    setIdioma(code)
+
+    if (code === 'ES') return // original — no translation needed
+
+    // Serve from client-side localStorage cache first
+    try {
+      const cached = localStorage.getItem(transCacheKey(restaurantId, code))
+      if (cached) {
+        const data = JSON.parse(cached)
+        setPlatosTraducidos(prev => ({ ...prev, [code]: data }))
+        console.log('[translate] localStorage cache HIT:', code)
+        return
+      }
+    } catch { /* ignore */ }
+
+    // Call API
+    setTraduciendo(true)
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platos: platos.map(p => ({ id: p.id, nombre: p.nombre, descripcion: p.descripcion })),
+          idioma: code,
+          restauranteId: restaurantId,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const { traducidos } = await res.json()
+      if (Array.isArray(traducidos)) {
+        setPlatosTraducidos(prev => ({ ...prev, [code]: traducidos }))
+        try { localStorage.setItem(transCacheKey(restaurantId, code), JSON.stringify(traducidos)) } catch { /* storage full */ }
+        console.log('[translate] OK:', code, `${traducidos.length} platos`)
+      }
+    } catch (err) {
+      console.error('[translate] error:', err.message)
+      setIdioma('ES') // fall back to Spanish on error
+    } finally {
+      setTraduciendo(false)
+    }
+  }
+
   const total = carrito.reduce((sum, p) => sum + p.precio * p.cantidad, 0)
   const totalItems = carrito.reduce((sum, p) => sum + p.cantidad, 0)
   const heroNombre = restaurantInfo?.nombre ?? ''
   const heroSub = restaurantInfo ? `${restaurantInfo.tipo} · ${restaurantInfo.ciudad}` : ''
+
+  // Merge translations over originals — preserves precio, alergenos, imagen_url from the DB
+  const traduccionActiva = idioma !== 'ES' ? platosTraducidos[idioma] : null
+  const platosAMostrar = traduccionActiva
+    ? platos.map(p => {
+        const t = traduccionActiva.find(t => t.id === p.id)
+        return t ? { ...p, nombre: t.nombre, descripcion: t.descripcion } : p
+      })
+    : platos
 
   return (
     <div style={{ fontFamily: font, maxWidth: 480, margin: '0 auto', background: BG, minHeight: '100vh' }}>
@@ -153,6 +227,43 @@ export default function Menu() {
           <div style={{ fontSize: 28, fontWeight: 700, color: TEXT, letterSpacing: -0.5, lineHeight: 1.1 }}>{heroNombre}</div>
           {heroSub && <div style={{ fontSize: 11, color: 'rgba(240,235,224,0.45)', marginTop: 5, letterSpacing: 2, textTransform: 'uppercase' }}>{heroSub}</div>}
         </div>
+
+        {/* Language selector */}
+        <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 4, zIndex: 5 }}>
+          {IDIOMAS.map(({ code, flag }) => {
+            const active = idioma === code
+            return (
+              <button
+                key={code}
+                onClick={() => cambiarIdioma(code)}
+                disabled={traduciendo}
+                title={code}
+                style={{
+                  background: active ? 'rgba(201,164,101,0.92)' : 'rgba(0,0,0,0.48)',
+                  color: active ? '#0f0f0f' : 'rgba(240,235,224,0.82)',
+                  border: active ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 8,
+                  padding: '4px 7px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: traduciendo ? 'default' : 'pointer',
+                  backdropFilter: 'blur(6px)',
+                  WebkitBackdropFilter: 'blur(6px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  letterSpacing: 0.4,
+                  fontFamily: font,
+                  opacity: traduciendo && !active ? 0.5 : 1,
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                <span style={{ fontSize: 13 }}>{flag}</span>
+                <span>{code}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div style={{ paddingBottom: 220 }}>
@@ -168,7 +279,13 @@ export default function Menu() {
         {!cargando && !fetchError && platos.length === 0 && (
           <div style={{ padding: '40px 24px', color: MUTED, fontSize: 14, textAlign: 'center' }}>Sin platos disponibles en este momento.</div>
         )}
-        {platos.map(plato => {
+        {traduciendo && (
+          <div style={{ padding: '12px 24px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: GOLD, fontSize: 16, letterSpacing: 2 }}>···</span>
+            <span style={{ fontSize: 12, color: MUTED, letterSpacing: 0.4 }}>Traduciendo carta…</span>
+          </div>
+        )}
+        {platosAMostrar.map(plato => {
           const enCarrito = carrito.find(p => p.id === plato.id)
           return (
             <div key={plato.id} style={{ padding: '18px 24px', borderBottom: `1px solid ${SEP}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
