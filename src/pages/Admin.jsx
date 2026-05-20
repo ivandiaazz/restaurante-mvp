@@ -30,6 +30,7 @@ export default function Admin() {
   const [numMesas, setNumMesas] = useState(10)
   const [restaurantInfo, setRestaurantInfo] = useState(null)
   const [pushStatus, setPushStatus] = useState('idle') // idle | granted | denied | unsupported
+  const [periodoAnalytics, setPeriodoAnalytics] = useState('semana')
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4)
@@ -246,6 +247,68 @@ export default function Admin() {
   const pedidosActivos = pedidos.filter(p => p.estado !== 'listo')
   const nombreRestaurante = restaurantInfo?.nombre ?? restaurantId
 
+  // ── Analytics ────────────────────────────────────────────────────────────────
+  const ESTADOS_VALIDOS = ['pagado', 'preparando', 'listo', 'nuevo']
+
+  function getPeriodStart(periodo) {
+    const now = new Date()
+    if (periodo === 'hoy') return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    if (periodo === 'semana') {
+      const d = new Date(now); d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return d
+    }
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  }
+
+  const pedidosValidos = pedidos.filter(p => ESTADOS_VALIDOS.includes(p.estado))
+  const pedidosPeriodo = pedidosValidos.filter(p => new Date(p.created_at) >= getPeriodStart(periodoAnalytics))
+
+  const ingresosTotal = pedidosPeriodo.reduce((s, p) => s + Number(p.total || 0), 0)
+  const ticketMedio = pedidosPeriodo.length ? ingresosTotal / pedidosPeriodo.length : 0
+
+  const hoyStart = new Date(); hoyStart.setHours(0, 0, 0, 0)
+  const pedidosHoyCount = pedidosValidos.filter(p => new Date(p.created_at) >= hoyStart).length
+
+  const mesaCounter = {}
+  pedidosPeriodo.forEach(p => { mesaCounter[p.mesa] = (mesaCounter[p.mesa] || 0) + 1 })
+  const mesaMasActiva = Object.entries(mesaCounter).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
+  const platoCounter = {}
+  pedidosPeriodo.forEach(p => {
+    ;(p.items || []).forEach(item => {
+      if (item?.nombre) platoCounter[item.nombre] = (platoCounter[item.nombre] || 0) + (item.cantidad || 1)
+    })
+  })
+  const topPlatos = Object.entries(platoCounter).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  const maxPlato = topPlatos[0]?.[1] || 1
+
+  // Ingresos por día — últimos 7 días (fijo, independiente del período)
+  const dias7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (6 - i)); d.setHours(0, 0, 0, 0); return d
+  })
+  const ingresosDia = dias7.map(d => {
+    const next = new Date(d); next.setDate(next.getDate() + 1)
+    const total = pedidosValidos
+      .filter(p => { const pd = new Date(p.created_at); return pd >= d && pd < next })
+      .reduce((s, p) => s + Number(p.total || 0), 0)
+    return { label: d.toLocaleDateString('es-ES', { weekday: 'short' }), day: d.getDate(), total }
+  })
+  const maxDia = Math.max(...ingresosDia.map(d => d.total), 1)
+
+  // Horas pico — filtrado por período, horas 8-23
+  const horaCounter = {}
+  pedidosPeriodo.forEach(p => {
+    const h = new Date(p.created_at).getHours()
+    horaCounter[h] = (horaCounter[h] || 0) + 1
+  })
+  const horasPico = Array.from({ length: 16 }, (_, i) => ({
+    label: `${i + 8}h`,
+    count: horaCounter[i + 8] || 0,
+  }))
+  const maxHora = Math.max(...horasPico.map(h => h.count), 1)
+
+  const BAR_H = 80 // max bar height px
+  const barPx = (val, max) => val > 0 ? Math.max(Math.round((val / max) * BAR_H), 4) : 0
+
   return (
     <div style={{ fontFamily: font, maxWidth: 600, margin: '0 auto', background: '#fff', minHeight: '100vh' }}>
 
@@ -277,23 +340,25 @@ export default function Admin() {
           {nombreRestaurante}
         </div>
 
-        <div style={{ display: 'flex', gap: 0 }}>
-          {['pedidos', 'carta', 'qr'].map(t => (
+        <div style={{ display: 'flex', gap: 0, overflowX: 'auto' }}>
+          {['pedidos', 'carta', 'qr', 'analytics'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
               style={{
-                padding: '10px 20px 12px',
+                padding: '10px 16px 12px',
                 background: 'none', border: 'none', cursor: 'pointer',
                 fontSize: 14, fontWeight: 600, fontFamily: font,
                 color: tab === t ? '#111' : '#aeaeb2',
                 borderBottom: tab === t ? '2px solid #111' : '2px solid transparent',
-                letterSpacing: 0.2, transition: 'color 0.15s'
+                letterSpacing: 0.2, transition: 'color 0.15s', whiteSpace: 'nowrap',
               }}
             >
               {t === 'pedidos'
                 ? `Pedidos${pedidosActivos.length ? ` (${pedidosActivos.length})` : ''}`
-                : t === 'carta' ? 'Carta' : 'QR Mesas'}
+                : t === 'carta' ? 'Carta'
+                : t === 'qr' ? 'QR Mesas'
+                : 'Analytics'}
             </button>
           ))}
         </div>
@@ -374,6 +439,108 @@ export default function Admin() {
               {guardando ? 'Guardando…' : 'Añadir plato'}
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === 'analytics' && (
+        <div style={{ padding: '16px 24px 40px' }}>
+
+          {/* Filtro de período */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {[
+              { id: 'hoy', label: 'Hoy' },
+              { id: 'semana', label: 'Esta semana' },
+              { id: 'mes', label: 'Este mes' },
+            ].map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriodoAnalytics(p.id)}
+                style={{
+                  padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: font,
+                  borderRadius: 10, cursor: 'pointer', border: 'none',
+                  background: periodoAnalytics === p.id ? '#111' : '#f5f5f7',
+                  color: periodoAnalytics === p.id ? '#fff' : '#6e6e73',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Cards de resumen */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 28 }}>
+            {[
+              { label: 'Ingresos', value: `${ingresosTotal.toFixed(2)}€` },
+              { label: 'Pedidos hoy', value: String(pedidosHoyCount) },
+              { label: 'Ticket medio', value: pedidosPeriodo.length ? `${ticketMedio.toFixed(2)}€` : '—' },
+              { label: 'Mesa top', value: mesaMasActiva ? `Mesa ${mesaMasActiva}` : '—' },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ border: '1px solid #f2f2f7', borderRadius: 16, padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 6 }}>{label}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#111', letterSpacing: -0.5 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Platos más pedidos */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 14 }}>Platos más pedidos</div>
+            {topPlatos.length === 0 ? (
+              <div style={{ fontSize: 14, color: '#aeaeb2', textAlign: 'center', padding: '20px 0' }}>Sin datos en este período</div>
+            ) : topPlatos.map(([nombre, count], i) => (
+              <div key={nombre} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#d1d1d6', width: 16, textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#111' }}>{nombre}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{count}×</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 99, background: '#f2f2f7' }}>
+                    <div style={{ height: '100%', borderRadius: 99, background: '#111', width: `${Math.round(count / maxPlato * 100)}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Ingresos por día — últimos 7 días */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 16 }}>Ingresos · últimos 7 días</div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+              {ingresosDia.map(({ label, day, total }) => (
+                <div key={day} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <div style={{ fontSize: 10, color: '#6e6e73', fontWeight: 500, height: 14, display: 'flex', alignItems: 'flex-end', marginBottom: 3 }}>
+                    {total > 0 ? `${total.toFixed(0)}€` : ''}
+                  </div>
+                  <div style={{ width: '100%', height: BAR_H, display: 'flex', alignItems: 'flex-end' }}>
+                    <div style={{ width: '100%', background: total > 0 ? '#111' : '#f2f2f7', borderRadius: '3px 3px 0 0', height: barPx(total, maxDia) }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: '#aeaeb2', textAlign: 'center', marginTop: 4, lineHeight: 1.3 }}>
+                    {label}<br />{day}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Horas pico */}
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', color: '#aeaeb2', fontWeight: 600, marginBottom: 16 }}>Horas pico</div>
+            <div style={{ overflowX: 'auto' }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', minWidth: 340 }}>
+                {horasPico.map(({ label, count }) => (
+                  <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ width: '100%', height: BAR_H, display: 'flex', alignItems: 'flex-end' }}>
+                      <div style={{ width: '100%', background: count > 0 ? '#111' : '#f2f2f7', borderRadius: '3px 3px 0 0', height: barPx(count, maxHora) }} />
+                    </div>
+                    <div style={{ fontSize: 9, color: '#aeaeb2', marginTop: 4 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
         </div>
       )}
 
