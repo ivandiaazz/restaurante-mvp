@@ -19,6 +19,10 @@ export default function Order() {
   const [error, setError] = useState('')
   const [emailCliente, setEmailCliente] = useState('')
   const [prAvailable, setPrAvailable] = useState(false)
+  const [splitAbierto, setSplitAbierto] = useState(false)
+  const [numPersonas, setNumPersonas] = useState(2)
+  const [splitLinks, setSplitLinks] = useState(null) // null | [{persona, url}]
+  const [generandoSplit, setGenerandoSplit] = useState(false)
 
   const prDivRef = useRef(null)
   const prBtnElRef = useRef(null)
@@ -152,6 +156,52 @@ export default function Order() {
     return () => prBtnElRef.current?.destroy()
   }, [prAvailable])
 
+  async function generarPagosDivididos() {
+    if (!navigator.onLine) { setError('Sin conexión. Por favor avisa al camarero.'); return }
+    setGenerandoSplit(true)
+    setError('')
+
+    const { data: pedido, error: dbError } = await supabase
+      .from('pedidos')
+      .insert({ restaurante_id: restaurantId, mesa: tableId, items: carrito, total, estado: 'pendiente_pago' })
+      .select('id')
+      .single()
+
+    if (dbError || !pedido) {
+      setError('Error al guardar el pedido. Inténtalo de nuevo.')
+      setGenerandoSplit(false)
+      return
+    }
+
+    fetch('/api/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restauranteId: restaurantId, mesa: tableId, items: carrito, total }),
+      keepalive: true,
+    }).catch(() => {})
+
+    const totalPorPersona = Math.round((total / numPersonas) * 100) / 100
+    const links = []
+
+    for (let i = 1; i <= numPersonas; i++) {
+      const res = await fetch('/api/create-split-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pedidoId: pedido.id, totalPorPersona, numeroPersona: i, totalPersonas: numPersonas, restaurantId, tableId }),
+      })
+      const json = await res.json()
+      if (!json.url) {
+        setError(`Error al generar el link para la persona ${i}.`)
+        setGenerandoSplit(false)
+        return
+      }
+      links.push({ persona: i, url: json.url })
+    }
+
+    setSplitLinks(links)
+    setGenerandoSplit(false)
+  }
+
   // ── Flujo Stripe Checkout (tarjeta / fallback) ────────────────────────────
   async function confirmarPedido() {
     if (!navigator.onLine) {
@@ -226,53 +276,133 @@ export default function Order() {
           </div>
         ))}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 16px' }}>
           <span style={{ fontSize: 17, fontWeight: 600, color: '#111' }}>Total</span>
           <span style={{ fontSize: 22, fontWeight: 700, color: '#111', letterSpacing: -0.5 }}>{total.toFixed(2)}€</span>
         </div>
 
-        {/* Email opcional para recibir el ticket */}
-        <div style={{ marginBottom: 24 }}>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aeaeb2', marginBottom: 6, letterSpacing: 0.3 }}>
-            RECIBIR TICKET POR EMAIL <span style={{ fontWeight: 400 }}>(opcional)</span>
-          </label>
-          <input
-            type="email"
-            value={emailCliente}
-            onChange={e => setEmailCliente(e.target.value)}
-            placeholder="tu@email.com"
-            style={{ width: '100%', padding: '13px 16px', borderRadius: 12, border: 'none', background: '#f5f5f7', fontSize: 15, outline: 'none', color: '#111', fontFamily: font, boxSizing: 'border-box' }}
-          />
-        </div>
+        {/* Dividir cuenta */}
+        {!splitAbierto && !splitLinks && (
+          <button
+            onClick={() => setSplitAbierto(true)}
+            style={{ width: '100%', padding: '13px 20px', background: '#fff', color: '#111', border: '1px solid #e8e8ed', borderRadius: 14, cursor: 'pointer', fontSize: 14, fontWeight: 600, letterSpacing: 0.2, marginBottom: 16, fontFamily: font }}
+          >
+            Dividir cuenta
+          </button>
+        )}
 
-        {error && (
+        {splitAbierto && !splitLinks && (
+          <div style={{ background: '#fafafa', borderRadius: 16, padding: '20px', marginBottom: 16, border: '1px solid #f2f2f7' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#111', marginBottom: 16, textAlign: 'center' }}>¿Entre cuántas personas?</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, marginBottom: 14 }}>
+              <button onClick={() => setNumPersonas(n => Math.max(2, n - 1))} style={{ width: 40, height: 40, borderRadius: '50%', background: '#fff', border: '1px solid #e8e8ed', fontSize: 22, cursor: 'pointer', color: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: font, fontWeight: 500 }}>−</button>
+              <span style={{ fontSize: 36, fontWeight: 700, color: '#111', minWidth: 40, textAlign: 'center' }}>{numPersonas}</span>
+              <button onClick={() => setNumPersonas(n => Math.min(10, n + 1))} style={{ width: 40, height: 40, borderRadius: '50%', background: '#fff', border: '1px solid #e8e8ed', fontSize: 22, cursor: 'pointer', color: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: font, fontWeight: 500 }}>+</button>
+            </div>
+            <div style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, color: '#111', marginBottom: 18 }}>
+              {(Math.round((total / numPersonas) * 100) / 100).toFixed(2)}€ <span style={{ fontSize: 13, fontWeight: 500, color: '#6e6e73' }}>/ persona</span>
+            </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <button
+                onClick={generarPagosDivididos}
+                disabled={generandoSplit}
+                style={{ padding: '14px', background: generandoSplit ? '#6e6e73' : '#111', color: '#fff', border: 'none', borderRadius: 12, cursor: generandoSplit ? 'default' : 'pointer', fontSize: 14, fontWeight: 600, fontFamily: font }}
+              >
+                {generandoSplit ? 'Generando links…' : 'Cada uno paga lo suyo'}
+              </button>
+              <button
+                onClick={() => setSplitAbierto(false)}
+                style={{ padding: '13px', background: '#fff', color: '#111', border: '1px solid #e8e8ed', borderRadius: 12, cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: font }}
+              >
+                Pagar todo junto
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && splitLinks && (
           <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
             {error}
           </div>
         )}
 
-        {/* Apple Pay / Google Pay — solo si el dispositivo lo soporta */}
-        {prAvailable && (
+        {splitLinks && (
           <div style={{ marginBottom: 16 }}>
-            <div ref={prDivRef} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0' }}>
-              <div style={{ flex: 1, height: 1, background: '#f2f2f7' }} />
-              <span style={{ fontSize: 12, color: '#aeaeb2', flexShrink: 0 }}>o paga con tarjeta</span>
-              <div style={{ flex: 1, height: 1, background: '#f2f2f7' }} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#6e6e73', marginBottom: 14, textAlign: 'center' }}>
+              Comparte el link de pago de cada persona
             </div>
+            {splitLinks.map(({ persona, url }) => (
+              <div key={persona} style={{ border: '1px solid #f2f2f7', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#111', marginBottom: 10 }}>
+                  Persona {persona} · {(Math.round((total / numPersonas) * 100) / 100).toFixed(2)}€
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(`Tu parte del pedido (${(Math.round((total / numPersonas) * 100) / 100).toFixed(2)}€):\n${url}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'block', padding: '11px', background: '#25d366', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, textAlign: 'center', textDecoration: 'none', fontFamily: font }}
+                  >
+                    WhatsApp
+                  </a>
+                  <button
+                    onClick={() => window.open(url, '_blank')}
+                    style={{ padding: '11px', background: '#111', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: font }}
+                  >
+                    Pagar ahora
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        <button
-          onClick={confirmarPedido}
-          disabled={loading}
-          style={{ width: '100%', padding: '16px 20px', background: loading ? '#6e6e73' : '#111', color: '#fff', border: 'none', borderRadius: 16, cursor: loading ? 'default' : 'pointer', fontSize: 15, fontWeight: 600, letterSpacing: 0.2, boxShadow: '0 4px 24px rgba(0,0,0,0.18)', transition: 'background 0.2s' }}
-        >
-          {loading ? 'Conectando con el pago...' : 'Pagar pedido'}
-        </button>
-        <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: '#aeaeb2' }}>
-          Pago seguro con Stripe · Apple Pay · Google Pay · Tarjeta
-        </div>
+        {!splitLinks && (
+          <>
+            {/* Email opcional para recibir el ticket */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#aeaeb2', marginBottom: 6, letterSpacing: 0.3 }}>
+                RECIBIR TICKET POR EMAIL <span style={{ fontWeight: 400 }}>(opcional)</span>
+              </label>
+              <input
+                type="email"
+                value={emailCliente}
+                onChange={e => setEmailCliente(e.target.value)}
+                placeholder="tu@email.com"
+                style={{ width: '100%', padding: '13px 16px', borderRadius: 12, border: 'none', background: '#f5f5f7', fontSize: 15, outline: 'none', color: '#111', fontFamily: font, boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {error && (
+              <div style={{ fontSize: 13, color: '#dc2626', background: '#fef2f2', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+                {error}
+              </div>
+            )}
+
+            {/* Apple Pay / Google Pay — solo si el dispositivo lo soporta */}
+            {prAvailable && (
+              <div style={{ marginBottom: 16 }}>
+                <div ref={prDivRef} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0' }}>
+                  <div style={{ flex: 1, height: 1, background: '#f2f2f7' }} />
+                  <span style={{ fontSize: 12, color: '#aeaeb2', flexShrink: 0 }}>o paga con tarjeta</span>
+                  <div style={{ flex: 1, height: 1, background: '#f2f2f7' }} />
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={confirmarPedido}
+              disabled={loading}
+              style={{ width: '100%', padding: '16px 20px', background: loading ? '#6e6e73' : '#111', color: '#fff', border: 'none', borderRadius: 16, cursor: loading ? 'default' : 'pointer', fontSize: 15, fontWeight: 600, letterSpacing: 0.2, boxShadow: '0 4px 24px rgba(0,0,0,0.18)', transition: 'background 0.2s' }}
+            >
+              {loading ? 'Conectando con el pago...' : 'Pagar pedido'}
+            </button>
+            <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: '#aeaeb2' }}>
+              Pago seguro con Stripe · Apple Pay · Google Pay · Tarjeta
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
